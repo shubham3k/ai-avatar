@@ -1,0 +1,184 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum IntegrationProvider {
+  google
+}
+
+enum IntegrationStatus {
+  connected
+  needs_reauth
+  error
+  disabled
+}
+
+enum SignalType {
+  user_action_required
+  reply_needed
+  approval_needed
+  deadline
+  upcoming_meeting
+  follow_up
+}
+
+enum SignalStatus {
+  open
+  resolved
+  ignored
+}
+
+enum InterventionStatus {
+  pending
+  snoozed
+  resolved
+  dismissed
+}
+
+enum Priority {
+  low
+  medium
+  high
+  critical
+}
+
+model User {
+  id            String          @id @default(cuid())
+  email         String          @unique
+  displayName   String?
+  timezone      String          @default("UTC")
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  integrations  Integration[]
+  emails        Email[]
+  calendarEvents CalendarEvent[]
+  signals       Signal[]
+  interventions Intervention[]
+  agentRuns     AgentRun[]
+}
+
+model Integration {
+  id                   String              @id @default(cuid())
+  userId               String
+  provider             IntegrationProvider
+  status               IntegrationStatus   @default(connected)
+  refreshTokenEncrypted String
+  accessTokenEncrypted  String?
+  expiresAt             DateTime?
+  scopes               String[]
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([userId, status])
+}
+
+model Email {
+  id                String   @id @default(cuid())
+  userId            String
+  providerMessageId String
+  threadId          String
+  fromEmail         String
+  fromName          String?
+  toEmails          String[]
+  subject           String
+  snippet           String?
+  bodyText          String?
+  receivedAt        DateTime
+  isRead            Boolean  @default(false)
+  sourceUrl         String?
+  rawUpdatedAt      DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, providerMessageId])
+  @@index([userId, receivedAt])
+  @@index([userId, threadId])
+}
+
+model CalendarEvent {
+  id               String   @id @default(cuid())
+  userId           String
+  providerEventId   String
+  calendarId       String
+  title            String
+  description      String?
+  startAt          DateTime
+  endAt            DateTime
+  organizerEmail   String?
+  attendeeEmails   String[]
+  sourceUrl        String?
+  rawUpdatedAt     DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, calendarId, providerEventId])
+  @@index([userId, startAt])
+}
+
+model Signal {
+  id               String      @id @default(cuid())
+  userId           String
+  type             SignalType
+  sourceType       String
+  sourceId         String
+  title            String
+  summary          String
+  dueAt            DateTime?
+  importanceHints  Json?
+  status           SignalStatus @default(open)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interventions    Intervention[]
+
+  @@unique([userId, type, sourceType, sourceId])
+  @@index([userId, status, dueAt])
+}
+
+model Intervention {
+  id              String              @id @default(cuid())
+  userId          String
+  signalId        String
+  status          InterventionStatus @default(pending)
+  priority        Priority
+  title           String
+  message         String
+  reason          String
+  actionType      String
+  actionPayload   Json?
+  snoozedUntil    DateTime?
+  createdAt       DateTime            @default(now())
+  resolvedAt      DateTime?
+  lastDeliveredAt DateTime?
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signal          Signal              @relation(fields: [signalId], references: [id], onDelete: Cascade)
+
+  @@unique([signalId])
+  @@index([userId, status, priority])
+  @@index([userId, snoozedUntil])
+}
+
+model AgentRun {
+  id           String   @id @default(cuid())
+  userId       String
+  triggerType  String
+  inputSummary String
+  model        String
+  outputJson   Json?
+  status       String
+  errorCode    String?
+  durationMs   Int?
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}

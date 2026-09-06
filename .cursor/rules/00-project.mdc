@@ -1,0 +1,14 @@
+---
+description: Core project rules
+alwaysApply: true
+---
+
+# Core project rules
+
+- Read `AGENTS.md` before changing code.
+- Read relevant files in `docs/` before architectural changes.
+- Keep Phase 1 scope narrow.
+- Prefer boring, explicit code over abstractions.
+- Do not introduce a dependency to solve a problem already handled by the current stack.
+- Every feature must have an acceptance criterion.
+- Run relevant tests and typecheck after changes.

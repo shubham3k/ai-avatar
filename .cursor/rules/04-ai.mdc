@@ -1,0 +1,15 @@
+---
+description: LLM and agent conventions
+globs:
+  - "apps/api/**/*agent*.ts"
+  - "apps/api/**/*llm*.ts"
+  - "apps/worker/**/*agent*.ts"
+  - "apps/worker/**/*llm*.ts"
+---
+
+- Never parse free-form model text when a structured schema can be used.
+- LLM output is untrusted input.
+- Validate model output before state mutation.
+- Give the model only the context required for the decision.
+- The model may recommend an action but may not directly perform side effects.
+- Record enough metadata in `AgentRun` to reproduce and debug decisions without storing sensitive payloads unnecessarily.

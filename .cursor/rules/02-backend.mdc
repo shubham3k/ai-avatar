@@ -1,0 +1,13 @@
+---
+description: API and worker conventions
+globs:
+  - "apps/api/**/*.ts"
+  - "apps/worker/**/*.ts"
+---
+
+- Keep HTTP handlers thin.
+- Domain logic belongs in services.
+- External providers are adapters behind interfaces.
+- Validate all external input with Zod.
+- Database writes must be explicit and transactional where multiple related records change.
+- Never log secrets or raw external content.

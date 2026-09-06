@@ -1,0 +1,12 @@
+---
+description: Web and desktop renderer conventions
+globs:
+  - "apps/web/**/*.{ts,tsx}"
+  - "apps/desktop/renderer/**/*.{ts,tsx}"
+---
+
+- Use strict TypeScript.
+- Keep data fetching in services/hooks, not directly in presentation components.
+- Do not embed provider or LLM logic in UI components.
+- UI components should consume typed domain objects.
+- Keep the overlay renderer independent from Electron main-process APIs.

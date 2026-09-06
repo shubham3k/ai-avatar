@@ -1,0 +1,12 @@
+---
+description: Electron security and overlay conventions
+globs:
+  - "apps/desktop/**/*.ts"
+  - "apps/desktop/**/*.tsx"
+---
+
+- Keep `contextIsolation` enabled.
+- Use a narrow preload bridge.
+- Renderer must not access Node APIs directly.
+- The desktop app must never store Google OAuth refresh tokens.
+- Overlay window behavior must be isolated from backend business logic.
