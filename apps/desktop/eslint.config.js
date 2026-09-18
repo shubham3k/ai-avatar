@@ -12,4 +12,14 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "error",
     },
   },
+  {
+    // .cjs files exist specifically *because* this package is "type":
+    // "module" but something (Electron's preload sandbox, electron-builder's
+    // hook loader) requires plain CommonJS — require() is the correct,
+    // intentional choice there, not a lint violation.
+    files: ["**/*.cjs"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
 );

@@ -35,11 +35,13 @@
 - toEmails
 - subject
 - snippet
-- bodyText (Phase 1 can store only what is needed; do not over-collect)
+- bodyText (Phase 1 can store only what is needed; do not over-collect — Gmail
+  sync (Phase 2.2B) intentionally leaves this null, metadata/snippet only)
 - receivedAt
-- isRead
+- isRead (derived from the absence of Gmail's `UNREAD` label)
+- labels (raw Gmail label IDs, e.g. `INBOX`, `UNREAD`)
 - sourceUrl
-- rawUpdatedAt
+- rawUpdatedAt (set to sync time; Gmail messages are otherwise immutable)
 
 ### CalendarEvent
 

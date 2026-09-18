@@ -12,15 +12,16 @@
     "lint": "eslint .",
     "test": "vitest run",
     "electron": "electron .",
-    "electron:dev": "tsc -p tsconfig.json && node scripts/copy-preload.mjs && concurrently \"vite\" \"wait-on tcp:127.0.0.1:5173 && electron .\""
+    "electron:dev": "tsc -p tsconfig.json && node scripts/copy-preload.mjs && concurrently \"vite\" \"wait-on tcp:127.0.0.1:5173 && electron .\"",
+    "prepare:api": "node scripts/prepare-api-resources.mjs",
+    "package:win:dir": "npm run build && npm run prepare:api && electron-builder --win dir",
+    "package:win": "npm run build && npm run prepare:api && electron-builder --win nsis"
   },
   "dependencies": {
-    "@ai-agent/shared": "workspace:*",
-    "dotenv": "^16.4.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "dotenv": "^16.4.0"
   },
   "devDependencies": {
+    "@ai-agent/shared": "workspace:*",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.1.0",
@@ -30,12 +31,42 @@
     "@vitejs/plugin-react": "^4.3.0",
     "concurrently": "^9.0.0",
     "electron": "^32.0.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "typescript": "^5.6.0",
     "vite": "^5.4.0",
     "vite-plugin-electron": "^0.28.0",
     "vite-plugin-electron-renderer": "^0.14.0",
     "vitest": "^2.1.0",
     "wait-on": "^8.0.0"
+  },
+  "build": {
+    "appId": "co.digipanda.ai-executive-agent",
+    "productName": "AI Executive Agent",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/main/**/*",
+      "dist/renderer/**/*",
+      "package.json",
+      "!dist/main/**/*.test.*",
+      "!dist/main/**/*.map"
+    ],
+    "afterPack": "scripts/after-pack.cjs",
+    "asar": true,
+    "win": {
+      "target": [
+        "nsis",
+        "dir"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    }
   }
 }

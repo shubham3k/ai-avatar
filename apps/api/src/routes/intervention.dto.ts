@@ -1,12 +1,14 @@
-import type { Intervention } from "@prisma/client";
+import type { Intervention } from "../db/repositories/interventions.repository.js";
 import type { InterventionDto } from "@ai-agent/shared";
 
 export function toInterventionDto(intervention: Intervention): InterventionDto {
   return {
     id: intervention.id,
     signalId: intervention.signalId,
-    status: intervention.status,
-    priority: intervention.priority,
+    // Cast is safe: SQLite has no native enum (Phase 4.1), but every write
+    // path only ever assigns one of these literal values.
+    status: intervention.status as InterventionDto["status"],
+    priority: intervention.priority as InterventionDto["priority"],
     title: intervention.title,
     message: intervention.message,
     reason: intervention.reason,

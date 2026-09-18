@@ -93,6 +93,73 @@ describe("desktop api client", () => {
     await expect(client.resolve("int_1")).rejects.toMatchObject({ status: 500 });
   });
 
+  it("fetches Google connection status via GET /api/v1/integrations/google/status", async () => {
+    const status = { connected: true, provider: "google", email: "a@b.com", scopes: [] };
+    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue(okResponse(status));
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+
+    const result = await client.googleStatus();
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://localhost:4000/api/v1/integrations/google/status",
+      { method: "GET" },
+    );
+    expect(result).toEqual(status);
+  });
+
+  it("disconnects Google via POST /api/v1/integrations/google/disconnect", async () => {
+    const status = { connected: false, provider: "google", email: null, scopes: [] };
+    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue(okResponse(status));
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+
+    const result = await client.disconnectGoogle();
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://localhost:4000/api/v1/integrations/google/disconnect",
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+    );
+    expect(result).toEqual(status);
+  });
+
+  it("checkNow runs sync -> detect-signals -> sync -> detect-signals -> evaluate in order and returns the evaluate result", async () => {
+    const evaluateResult = { results: [{ situationId: "sit_1", created: true }] };
+    const fetchImpl = vi
+      .fn<FetchLike>()
+      .mockResolvedValueOnce(okResponse({ fetched: 1, created: 1, updated: 0 })) // gmail sync
+      .mockResolvedValueOnce(okResponse({ created: 0 })) // gmail detect-signals
+      .mockResolvedValueOnce(okResponse({ fetched: 1, created: 1, updated: 0 })) // calendar sync
+      .mockResolvedValueOnce(okResponse({ created: 0 })) // calendar detect-signals
+      .mockResolvedValueOnce(okResponse(evaluateResult)); // assistant evaluate
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+
+    const result = await client.checkNow();
+
+    expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
+      "http://localhost:4000/api/v1/integrations/google/gmail/sync",
+      "http://localhost:4000/api/v1/integrations/google/gmail/detect-signals",
+      "http://localhost:4000/api/v1/integrations/google/calendar/sync",
+      "http://localhost:4000/api/v1/integrations/google/calendar/detect-signals",
+      "http://localhost:4000/api/v1/assistant/evaluate",
+    ]);
+    expect(fetchImpl.mock.calls.every((call) => call[1]?.method === "POST")).toBe(true);
+    expect(result).toEqual(evaluateResult);
+  });
+
+  it("checkNow stops and throws at the first step that fails, without calling later steps", async () => {
+    const fetchImpl = vi
+      .fn<FetchLike>()
+      .mockResolvedValueOnce(okResponse({ fetched: 1, created: 1, updated: 0 })) // gmail sync ok
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        json: async () => ({ error: { code: "provider_error", message: "Gmail unreachable" } }),
+      }); // gmail detect-signals fails
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+
+    await expect(client.checkNow()).rejects.toBeInstanceOf(ApiClientError);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("encodes intervention ids in URLs", async () => {
     const fetchImpl = vi.fn<FetchLike>().mockResolvedValue(okResponse(intervention));
     const client = createApiClient("http://localhost:4000/", fetchImpl);

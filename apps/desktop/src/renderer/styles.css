@@ -119,6 +119,16 @@ body,
   background: #cbd5e1;
 }
 
+.button-open {
+  background: #ffffff;
+  color: #1d4ed8;
+  border: 1.5px solid #2563eb;
+}
+
+.button-open:hover {
+  background: #eff6ff;
+}
+
 .button-retry {
   flex: 0 0 auto;
   background: #991b1b;
@@ -127,10 +137,122 @@ body,
   font-size: 12px;
 }
 
+.settings-card {
+  width: 300px;
+  text-align: left;
+}
+
+.settings-section {
+  margin-bottom: 16px;
+}
+
+.settings-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.settings-status {
+  font-size: 12.5px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.settings-status-ok {
+  color: #15803d;
+}
+
+.settings-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.settings-toggle {
+  position: fixed;
+  top: 8px;
+  left: 12px;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.settings-close {
+  width: 100%;
+}
+
 .busy-indicator {
   position: fixed;
   top: 8px;
   right: 12px;
   font-size: 11px;
   color: #94a3b8;
+}
+
+.check-now-toggle {
+  position: fixed;
+  top: 8px;
+  right: 12px;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px;
+  text-decoration: underline;
+}
+
+.check-now-toggle:disabled {
+  cursor: default;
+  text-decoration: none;
+  opacity: 0.7;
+}
+
+.empty-card {
+  width: 300px;
+  text-align: center;
+}
+
+.empty-card .button {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.nav-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.nav-button {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.nav-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.nav-counter {
+  font-size: 11.5px;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }

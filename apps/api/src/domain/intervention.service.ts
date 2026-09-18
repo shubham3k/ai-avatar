@@ -1,4 +1,4 @@
-import type { Intervention } from "@prisma/client";
+import type { Intervention } from "../db/repositories/interventions.repository.js";
 import {
   createInterventionsRepository,
   type InterventionsRepository,

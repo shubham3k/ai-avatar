@@ -20,12 +20,18 @@ if (envFile) {
 }
 
 export interface AppConfig {
-  apiUrl: string;
+  /**
+   * Phase 4.2: normally null, meaning "start the API in-process on a
+   * dynamically chosen port" (see index.ts). Set DESKTOP_API_URL only to
+   * point the desktop app at an already-running external API instance —
+   * an escape hatch for advanced dev workflows, not the default path.
+   */
+  apiUrl: string | null;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const raw = env.DESKTOP_API_URL?.trim();
   return {
-    apiUrl: raw && raw.length > 0 ? raw : "http://localhost:4000",
+    apiUrl: raw && raw.length > 0 ? raw : null,
   };
 }

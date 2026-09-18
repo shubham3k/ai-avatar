@@ -25,10 +25,18 @@ function tomorrowAtTenUtc(now: Date): Date {
   return d;
 }
 
-export async function ensureDemoData(
-  prisma: PrismaClient,
-  now: Date = new Date(),
-): Promise<DemoData> {
+export interface DemoUser {
+  id: string;
+}
+
+/**
+ * This app is single-user: every route's `resolveCallerId` falls back to
+ * this one user when no `x-user-id` header is sent (which is always, in
+ * the desktop app). Idempotent (`upsert`) — safe to call on every server
+ * start, not just once, so a fresh install always has a user to attach
+ * Google connections/synced data to without a separate manual seed step.
+ */
+export async function ensureDemoUser(prisma: PrismaClient): Promise<DemoUser> {
   const user = await prisma.user.upsert({
     where: { email: DEMO_USER_EMAIL },
     update: {},
@@ -38,6 +46,14 @@ export async function ensureDemoData(
       timezone: "UTC",
     },
   });
+  return { id: user.id };
+}
+
+export async function ensureDemoData(
+  prisma: PrismaClient,
+  now: Date = new Date(),
+): Promise<DemoData> {
+  const user = await ensureDemoUser(prisma);
 
   const startAt = tomorrowAtTenUtc(now);
   const endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
@@ -58,7 +74,7 @@ export async function ensureDemoData(
       threadId: "demo-thread-0001",
       fromEmail: "design-team@example-partner.com",
       fromName: "Design Team",
-      toEmails: [DEMO_USER_EMAIL],
+      toEmails: JSON.stringify([DEMO_USER_EMAIL]),
       subject: DEMO_EMAIL_SUBJECT,
       snippet: DEMO_EMAIL_SNIPPET,
       bodyText:
@@ -92,7 +108,7 @@ export async function ensureDemoData(
       startAt,
       endAt,
       organizerEmail: DEMO_USER_EMAIL,
-      attendeeEmails: [DEMO_USER_EMAIL],
+      attendeeEmails: JSON.stringify([DEMO_USER_EMAIL]),
       sourceUrl: "https://calendar.google.com/demo-event-0001",
       rawUpdatedAt: now,
     },

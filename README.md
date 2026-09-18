@@ -23,7 +23,7 @@ Phase 1 is intentionally small: single user, Gmail read-only, Google Calendar re
 
 ## Repo principles
 
-1. Keep business state in PostgreSQL.
+1. Keep business state in a local database (SQLite, via Prisma — see `docs/SQLITE_MIGRATION.md`).
 2. Keep external-provider data normalized and traceable to its source.
 3. LLMs produce structured decisions, not arbitrary application side effects.
 4. All write actions require deterministic backend validation.
@@ -41,8 +41,12 @@ This section will help you get the project running with demo data to verify ever
 
 - **Node.js** >= 22.0.0
 - **pnpm** >= 11.22.0 (install with: `npm install -g pnpm`)
-- **PostgreSQL** database (running locally or accessible remotely)
 - **Git**
+
+No database server to install or run — the app uses an embedded SQLite
+database (a local file, created automatically by `pnpm db:migrate`). See
+[docs/SQLITE_MIGRATION.md](./docs/SQLITE_MIGRATION.md) if you're coming
+from an older checkout that used PostgreSQL.
 
 ### Step 1: Clone and Install Dependencies
 
@@ -64,25 +68,25 @@ Edit `.env` with your actual values:
 
 ```env
 NODE_ENV=development
-DATABASE_URL=postgresql://postgres:postgres@localhost:5433/ai_exec_agent
+DATABASE_URL=file:./dev.db
 # Generate a 32-byte key: openssl rand -base64 32
 ENCRYPTION_KEY=your_actual_32_byte_base64_key_here
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=gpt-4o-mini
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=qwen/qwen3-32b
 CRON_SCHEDULE=*/5 * * * *
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
-GOOGLE_REDIRECT_URI=http://localhost:4000/api/v1/auth/google/callback
+GOOGLE_REDIRECT_URI=http://localhost:4000/api/v1/integrations/google/callback
 APP_BASE_URL=http://localhost:3000
 API_BASE_URL=http://localhost:4000
 DESKTOP_BASE_URL=http://localhost:3001
 ```
 
 **Note:** For demo/testing purposes, you only need:
-- `DATABASE_URL` (must be a valid PostgreSQL connection string)
+- `DATABASE_URL` (a `file:` path — the default `file:./dev.db` is fine)
 - `ENCRYPTION_KEY` (any base64-encoded 32-byte string)
 
-Google OAuth and OpenAI keys are **not required** for testing with demo data.
+Google OAuth and Groq keys are **not required** for testing with demo data.
 
 ### Step 3: Set Up the Database
 
@@ -158,8 +162,8 @@ curl http://localhost:4000/api/v1/health
 pnpm db:studio
 # Then copy the user ID
 
-# Option 2: Query database directly
-docker exec ai-executive-agent-blueprint-postgres-1 psql -U postgres -d ai_exec_agent -c 'SELECT id FROM public."User" LIMIT 1;'
+# Option 2: Query the SQLite file directly (from apps/api)
+sqlite3 dev.db "SELECT id FROM User LIMIT 1;"
 
 # Then query interventions
 curl "http://localhost:4000/api/v1/interventions?userId=<user_id>"
@@ -247,7 +251,7 @@ ai-executive-agent-blueprint/
 - **Web**: Next.js 15 + React 19 + TypeScript
 - **API**: Fastify 5 + TypeScript + Prisma
 - **Desktop**: Electron + React + TypeScript
-- **Database**: PostgreSQL with Prisma ORM
+- **Database**: SQLite with Prisma ORM (embedded, no server process — Phase 4.1)
 - **Real-time**: Server-Sent Events (SSE)
 - **Jobs**: node-cron (Phase 1)
 
@@ -326,18 +330,17 @@ This verifies:
 
 ### Database Connection Issues
 
-**Error:** `Can't reach database server` or `Authentication failed`
+**Error:** `Unable to open the database file` or migrations failing
 
-**Solution:** 
-- Verify PostgreSQL is running: `docker ps` (if using Docker)
-- Check `DATABASE_URL` in `.env` matches your setup
-- Ensure database exists
+**Solution:**
+- Check `DATABASE_URL` in `.env` is a `file:` path (e.g. `file:./dev.db`), not a leftover PostgreSQL connection string
+- Run `pnpm db:migrate` from `apps/api` if the file doesn't exist yet
 - **Windows users**: Convert `.env` file to Unix line endings:
   ```powershell
   $content = Get-Content ".env" -Raw; $content -replace "`r`n", "`n" | Set-Content ".env" -NoNewline
   ```
 
-**Note:** This project uses Docker Compose for PostgreSQL. The connection string in `.env.example` uses port 5433 (mapped from container port 5432).
+**Note:** As of Phase 4.1, this project uses an embedded SQLite database — no Docker/Postgres required. See [docs/SQLITE_MIGRATION.md](./docs/SQLITE_MIGRATION.md).
 
 ### Prisma Client Issues
 
@@ -403,14 +406,14 @@ After following the Quick Start, verify:
 **Quick verification commands:**
 
 ```powershell
-# 1. Check database has tables
-docker exec ai-executive-agent-blueprint-postgres-1 psql -U postgres -d ai_exec_agent -c "\dt"
+# 1. Check database has tables (from apps/api)
+sqlite3 dev.db ".tables"
 
 # 2. Check demo user exists
-docker exec ai-executive-agent-blueprint-postgres-1 psql -U postgres -d ai_exec_agent -c "SELECT email FROM public.\"User\";"
+sqlite3 dev.db "SELECT email FROM User;"
 
-# 3. Check interventions loaded
-docker exec ai-executive-agent-blueprint-postgres-1 psql -U postgres -d ai_exec_agent -c "SELECT title, priority FROM public.\"Intervention\" ORDER BY priority;"
+# 3. Check interventions loaded (priority is app-sorted, not DB-sorted — see docs/SQLITE_MIGRATION.md)
+sqlite3 dev.db "SELECT title, priority FROM Intervention;"
 
 # 4. Test API health
 Invoke-RestMethod -Uri "http://localhost:4000/api/v1/health"

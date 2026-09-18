@@ -1,9 +1,54 @@
-import { Prisma } from "@prisma/client";
 import type {
-  Intervention,
+  Intervention as PrismaIntervention,
   PrismaClient,
-  Signal,
+  Signal as PrismaSignal,
 } from "@prisma/client";
+
+// SQLite has no native enum support (Phase 4.1) — these were
+// Prisma-generated enum types before; now plain string unions.
+export type SignalType =
+  | "user_action_required"
+  | "reply_needed"
+  | "approval_needed"
+  | "deadline"
+  | "upcoming_meeting"
+  | "follow_up";
+export type Priority = "low" | "medium" | "high" | "critical";
+
+const PRIORITY_RANK: Record<Priority, number> = {
+  critical: 3,
+  high: 2,
+  medium: 1,
+  low: 0,
+};
+
+function parseJsonRecord(raw: string | null): Record<string, unknown> | null {
+  if (raw === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Domain-facing shape — `importanceHints` is a parsed object, not a JSON string. */
+export type Signal = Omit<PrismaSignal, "importanceHints"> & {
+  importanceHints: Record<string, unknown> | null;
+};
+
+/** Domain-facing shape — `actionPayload` is a parsed object, not a JSON string. */
+export type Intervention = Omit<PrismaIntervention, "actionPayload"> & {
+  actionPayload: Record<string, unknown> | null;
+};
+
+function signalToDomain(row: PrismaSignal): Signal {
+  return { ...row, importanceHints: parseJsonRecord(row.importanceHints) };
+}
+
+function interventionToDomain(row: PrismaIntervention): Intervention {
+  return { ...row, actionPayload: parseJsonRecord(row.actionPayload) };
+}
 
 export interface SignalsRepository {
   findUniqueKey(
@@ -12,15 +57,17 @@ export interface SignalsRepository {
     sourceType: string,
     sourceId: string,
   ): Promise<Signal | null>;
+  /** All currently open (not resolved/ignored) signals for a user, oldest first. */
+  listOpen(userId: string): Promise<Signal[]>;
   create(signal: {
     userId: string;
-    type: Signal["type"];
+    type: SignalType;
     sourceType: string;
     sourceId: string;
     title: string;
     summary: string;
     dueAt?: Date | null;
-    importanceHints?: Prisma.InputJsonValue | null;
+    importanceHints?: Record<string, unknown> | null;
   }): Promise<Signal>;
 }
 
@@ -28,13 +75,21 @@ export function createSignalsRepository(
   prisma: PrismaClient,
 ): SignalsRepository {
   return {
-    findUniqueKey(userId, type, sourceType, sourceId) {
-      return prisma.signal.findFirst({
-        where: { userId, type: type as Signal["type"], sourceType, sourceId },
+    async findUniqueKey(userId, type, sourceType, sourceId) {
+      const row = await prisma.signal.findFirst({
+        where: { userId, type, sourceType, sourceId },
       });
+      return row ? signalToDomain(row) : null;
     },
-    create(input) {
-      return prisma.signal.create({
+    async listOpen(userId) {
+      const rows = await prisma.signal.findMany({
+        where: { userId, status: "open" },
+        orderBy: { createdAt: "asc" },
+      });
+      return rows.map(signalToDomain);
+    },
+    async create(input) {
+      const row = await prisma.signal.create({
         data: {
           userId: input.userId,
           type: input.type,
@@ -44,13 +99,12 @@ export function createSignalsRepository(
           summary: input.summary,
           dueAt: input.dueAt ?? null,
           importanceHints:
-            input.importanceHints === undefined
-              ? Prisma.DbNull
-              : input.importanceHints === null
-                ? Prisma.JsonNull
-                : input.importanceHints,
+            input.importanceHints === undefined || input.importanceHints === null
+              ? null
+              : JSON.stringify(input.importanceHints),
         },
       });
+      return signalToDomain(row);
     },
   };
 }
@@ -62,12 +116,12 @@ export interface InterventionsRepository {
   create(intervention: {
     userId: string;
     signalId: string;
-    priority: "low" | "medium" | "high" | "critical";
+    priority: Priority;
     title: string;
     message: string;
     reason: string;
     actionType: string;
-    actionPayload?: Prisma.InputJsonValue | null;
+    actionPayload?: Record<string, unknown> | null;
     deliveredAt?: Date;
   }): Promise<Intervention>;
   resolve(id: string, now: Date): Promise<Intervention>;
@@ -78,11 +132,15 @@ export function createInterventionsRepository(
   prisma: PrismaClient,
 ): InterventionsRepository {
   return {
-    findBySignalId(signalId) {
-      return prisma.intervention.findUnique({ where: { signalId } });
+    async findBySignalId(signalId) {
+      const row = await prisma.intervention.findUnique({ where: { signalId } });
+      return row ? interventionToDomain(row) : null;
     },
-    listInbox(userId, now) {
-      return prisma.intervention.findMany({
+    async listInbox(userId, now) {
+      // Priority is a plain string column now (Phase 4.1, no DB enum), so
+      // "desc" would sort alphabetically — wrong order. Sort in application
+      // code by rank instead, createdAt as the tiebreaker, same as before.
+      const rows = await prisma.intervention.findMany({
         where: {
           userId,
           OR: [
@@ -90,14 +148,18 @@ export function createInterventionsRepository(
             { status: "snoozed", snoozedUntil: { lte: now } },
           ],
         },
-        orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
+        orderBy: { createdAt: "asc" },
       });
+      return rows
+        .map(interventionToDomain)
+        .sort((a, b) => PRIORITY_RANK[b.priority as Priority] - PRIORITY_RANK[a.priority as Priority]);
     },
-    findById(id) {
-      return prisma.intervention.findUnique({ where: { id } });
+    async findById(id) {
+      const row = await prisma.intervention.findUnique({ where: { id } });
+      return row ? interventionToDomain(row) : null;
     },
-    create(input) {
-      return prisma.intervention.create({
+    async create(input) {
+      const row = await prisma.intervention.create({
         data: {
           userId: input.userId,
           signalId: input.signalId,
@@ -107,26 +169,27 @@ export function createInterventionsRepository(
           reason: input.reason,
           actionType: input.actionType,
           actionPayload:
-            input.actionPayload === undefined
-              ? Prisma.DbNull
-              : input.actionPayload === null
-                ? Prisma.JsonNull
-                : input.actionPayload,
+            input.actionPayload === undefined || input.actionPayload === null
+              ? null
+              : JSON.stringify(input.actionPayload),
           lastDeliveredAt: input.deliveredAt ?? new Date(),
         },
       });
+      return interventionToDomain(row);
     },
-    resolve(id, now) {
-      return prisma.intervention.update({
+    async resolve(id, now) {
+      const row = await prisma.intervention.update({
         where: { id },
         data: { status: "resolved", resolvedAt: now, snoozedUntil: null },
       });
+      return interventionToDomain(row);
     },
-    snooze(id, snoozedUntil) {
-      return prisma.intervention.update({
+    async snooze(id, snoozedUntil) {
+      const row = await prisma.intervention.update({
         where: { id },
         data: { status: "snoozed", snoozedUntil },
       });
+      return interventionToDomain(row);
     },
   };
 }

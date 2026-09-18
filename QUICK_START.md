@@ -1,5 +1,14 @@
 # How to Run the AI Executive Agent Project
 
+> **⚠️ Outdated as of Phase 4.1 (September 2026):** this guide predates the
+> switch from PostgreSQL/Docker to an embedded SQLite database. Every
+> Docker/`docker-compose`/port-5433/PostgreSQL instruction below is no
+> longer accurate — there is no database server to install or start.
+> **Use [README.md](./README.md)'s Quick Start section instead**, and see
+> [docs/SQLITE_MIGRATION.md](./docs/SQLITE_MIGRATION.md) for what changed
+> and why. This file is kept for its still-accurate Node/pnpm/Electron
+> guidance but should not be followed for database setup.
+
 This guide walks you through setting up and running all components of the AI Executive Agent Blueprint.
 
 ## Prerequisites
@@ -426,14 +435,14 @@ ENCRYPTION_KEY=cmVwbGFjZV93aXRoX2FfcmVhbF8zMl9ieXRlX2tleV93aGVuX3JlYWR5PQ==
 # OAuth (optional)
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=http://localhost:4000/api/v1/auth/google/callback
+GOOGLE_REDIRECT_URI=http://localhost:4000/api/v1/integrations/google/callback
 
 # Job Scheduling
 CRON_SCHEDULE=*/5 * * * *
 
-# LLM (optional)
-OPENAI_API_KEY=
-OPENAI_MODEL=
+# LLM (optional) — Groq, not OpenAI (see HANDOFF.md's Phase 2 manual-validation addendum)
+GROQ_API_KEY=
+GROQ_MODEL=
 ```
 
 ---

@@ -1,3 +1,7 @@
+# As of Phase 4.1, apps/api uses an embedded SQLite database (see
+# docs/SQLITE_MIGRATION.md) — nothing in this repo requires Postgres
+# anymore. Left in place, unused, only in case you have another reason to
+# want a local Postgres instance.
 services:
   postgres:
     image: postgres:17

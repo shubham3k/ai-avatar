@@ -7,18 +7,19 @@ import {
 export const POLL_INTERVAL_MS = 15_000;
 
 export interface PollingState {
-  intervention: InterventionDto | null;
+  interventions: InterventionDto[];
   loadError: string | null;
 }
 
 /**
- * Polls the inbox through the desktop bridge and exposes the single
- * highest-priority intervention (the API already orders by priority).
+ * Polls the inbox through the desktop bridge and exposes the full,
+ * priority-ordered list (the API already orders by priority) so the
+ * renderer can page through all pending items, not just the top one.
  * Guarantees at most one in-flight request and cleans up on unmount.
  */
 export function useInterventionPolling() {
   const [state, setState] = useState<PollingState>({
-    intervention: null,
+    interventions: [],
     loadError: null,
   });
   const inFlight = useRef(false);
@@ -26,7 +27,7 @@ export function useInterventionPolling() {
   const refresh = useCallback(async () => {
     if (inFlight.current) return;
     if (!window.desktopAPI) {
-      setState({ intervention: null, loadError: "Desktop bridge unavailable" });
+      setState({ interventions: [], loadError: "Desktop bridge unavailable" });
       return;
     }
     inFlight.current = true;
@@ -37,11 +38,11 @@ export function useInterventionPolling() {
         throw new Error("Unexpected response shape from API");
       }
       setState({
-        intervention: parsed.data.items[0] ?? null,
+        interventions: parsed.data.items,
         loadError: null,
       });
     } catch {
-      // Keep the last known intervention visible; just surface the error.
+      // Keep the last known interventions visible; just surface the error.
       setState((prev) => ({
         ...prev,
         loadError: "Could not reach the API",

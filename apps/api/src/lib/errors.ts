@@ -3,6 +3,7 @@ export type ErrorCode =
   | "not_found"
   | "forbidden"
   | "conflict"
+  | "upstream_error"
   | "internal_error";
 
 export class AppError extends Error {
@@ -25,3 +26,10 @@ export const notFoundError = (message: string) =>
 
 export const conflictError = (message: string) =>
   new AppError("conflict", 409, message);
+
+export const forbiddenError = (message: string) =>
+  new AppError("forbidden", 403, message);
+
+/** The external provider (e.g. Gmail) rejected or failed the request. */
+export const upstreamError = (message: string) =>
+  new AppError("upstream_error", 502, message);

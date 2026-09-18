@@ -51,7 +51,14 @@ export function createOverlayWindow(options: {
   if (options.isDev) {
     void win.loadURL(options.devServerUrl);
   } else {
-    void win.loadFile(join(__dirname, "../renderer/index.html"));
+    // This file compiles to dist/main/windows/overlay-window.js; the
+    // renderer's vite build output is a sibling of dist/main (dist/renderer/),
+    // not nested inside it — two levels up, not one. Getting this wrong
+    // means loadFile() silently fails to find the page: the window is
+    // created but never shows (`ready-to-show` never fires, and it starts
+    // with `show: false`), so it's a real, running Electron process with
+    // truly no visible window at all — not just a transparent/empty one.
+    void win.loadFile(join(__dirname, "..", "..", "renderer", "index.html"));
   }
 
   return win;

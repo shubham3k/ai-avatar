@@ -5,6 +5,15 @@ export interface InterventionCardProps {
   actionError: string | null;
   onDone: () => void;
   onSnooze: () => void;
+  onOpen: () => void;
+}
+
+function sourceUrlOf(intervention: InterventionDto): string | null {
+  if (intervention.actionType !== "open_source") return null;
+  const payload = intervention.actionPayload;
+  if (!payload || typeof payload !== "object") return null;
+  const url = (payload as Record<string, unknown>).sourceUrl;
+  return typeof url === "string" && url.length > 0 ? url : null;
 }
 
 export function InterventionCard({
@@ -12,7 +21,10 @@ export function InterventionCard({
   actionError,
   onDone,
   onSnooze,
+  onOpen,
 }: InterventionCardProps) {
+  const sourceUrl = sourceUrlOf(intervention);
+
   return (
     <div className={`card priority-${intervention.priority}`} data-testid="intervention-card">
       <div className="card-priority">{intervention.priority.toUpperCase()}</div>
@@ -27,6 +39,11 @@ export function InterventionCard({
         </div>
       )}
       <div className="card-actions">
+        {sourceUrl !== null && (
+          <button type="button" className="button button-open" onClick={onOpen}>
+            Open
+          </button>
+        )}
         <button type="button" className="button button-done" onClick={onDone}>
           Done
         </button>

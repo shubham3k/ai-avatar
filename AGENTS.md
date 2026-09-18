@@ -8,7 +8,7 @@ Build a simple, production-minded AI executive agent in three phases. Do not exp
 - Web: Next.js + TypeScript.
 - API: Fastify + TypeScript.
 - Desktop: Electron + React + TypeScript.
-- DB: PostgreSQL with Prisma.
+- DB: SQLite with Prisma (Phase 4.1 — switched from PostgreSQL so the desktop app is self-contained, no Docker/external DB process required; see `docs/SQLITE_MIGRATION.md`).
 - Phase 1 jobs: a dedicated Node worker using node-cron. Do not add Redis/BullMQ until Phase 2.
 - Phase 1 real-time delivery: Server-Sent Events (SSE), not WebSocket.
 - Shared domain types and Zod schemas live in `packages/shared`.

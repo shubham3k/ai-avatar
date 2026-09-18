@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { DEMO_USER_EMAIL, ensureDemoData } from "../demo/demo-scenario.js";
 import {
   createInterventionsRepository,
@@ -79,7 +78,7 @@ export function createDemoPipelineService(now: Date = new Date()) {
           title: candidate.title,
           summary: candidate.summary,
           dueAt: candidate.dueAt,
-          importanceHints: candidate.importanceHints as Prisma.InputJsonValue,
+          importanceHints: candidate.importanceHints,
         });
         signalCreated = true;
       }

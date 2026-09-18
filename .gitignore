@@ -41,6 +41,8 @@ electron-build/
 release/
 *.app/
 *.exe/
+# Phase 4.6: packaging-time standalone api build (scripts/prepare-api-resources.mjs) — always regenerated from source, never hand-edited
+apps/desktop/resources/
 
 # Local DB data
 postgres_data/

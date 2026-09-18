@@ -16,6 +16,18 @@ export interface ApiClient {
   fetchInbox(): Promise<unknown>;
   resolve(interventionId: string): Promise<unknown>;
   snooze(interventionId: string, minutes: number): Promise<unknown>;
+  googleStatus(): Promise<unknown>;
+  disconnectGoogle(): Promise<unknown>;
+  /**
+   * Manual stand-in for the not-yet-built scheduler (see docs/ROADMAP —
+   * "automatic/scheduled assistant evaluation" is still unbuilt): runs the
+   * same sequence a background poll would — sync Gmail, detect Gmail
+   * signals, sync Calendar, detect Calendar signals, then evaluate —
+   * sequentially, so each step sees the previous step's results. Returns
+   * the evaluate step's result; the caller re-fetches the inbox separately
+   * to pick up any interventions it created.
+   */
+  checkNow(): Promise<unknown>;
 }
 
 export interface FetchLike {
@@ -63,6 +75,22 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
         method: "POST",
         body: JSON.stringify({ minutes }),
       });
+    },
+    googleStatus() {
+      return request("/integrations/google/status");
+    },
+    disconnectGoogle() {
+      return request("/integrations/google/disconnect", { method: "POST", body: "{}" });
+    },
+    async checkNow() {
+      await request("/integrations/google/gmail/sync", { method: "POST", body: "{}" });
+      await request("/integrations/google/gmail/detect-signals", { method: "POST", body: "{}" });
+      await request("/integrations/google/calendar/sync", { method: "POST", body: "{}" });
+      await request("/integrations/google/calendar/detect-signals", {
+        method: "POST",
+        body: "{}",
+      });
+      return request("/assistant/evaluate", { method: "POST", body: "{}" });
     },
   };
 }

@@ -3,12 +3,21 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "main": "./dist/app.js",
+  "types": "./dist/app.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/app.d.ts",
+      "import": "./dist/app.js"
+    }
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:db:migrate": "dotenv -e .env.test -- prisma migrate deploy",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:demo-tasks": "tsx prisma/create-demo-interventions.ts",
@@ -20,12 +29,14 @@
     "@prisma/client": "^5.22.0",
     "dotenv": "^16.4.0",
     "fastify": "^5.0.0",
+    "googleapis": "^144.0.0",
+    "openai": "^7.15.0",
     "fastify-type-provider-zod": "^3.0.0",
+    "prisma": "^5.22.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "prisma": "^5.22.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   }

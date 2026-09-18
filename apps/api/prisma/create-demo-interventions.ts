@@ -1,6 +1,17 @@
-import { PrismaClient, type Priority, type SignalType } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
+
+// SQLite has no native enum support (Phase 4.1) — these were Prisma-generated
+// enum types before; now plain string unions.
+type Priority = "low" | "medium" | "high" | "critical";
+type SignalType =
+	| "user_action_required"
+	| "reply_needed"
+	| "approval_needed"
+	| "deadline"
+	| "upcoming_meeting"
+	| "follow_up";
 
 const fixtures: Array<{
 	key: string;
@@ -100,7 +111,7 @@ async function main() {
 				message: fixture.message,
 				reason: fixture.reason,
 				actionType: "none",
-				actionPayload: { availableActions: ["DONE", "REMIND_LATER"] },
+				actionPayload: JSON.stringify({ availableActions: ["DONE", "REMIND_LATER"] }),
 			},
 		});
 	}

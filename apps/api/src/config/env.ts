@@ -12,14 +12,14 @@ if (envFile) {
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
-  DATABASE_URL: z
-    .string()
-    .url()
-    .default("postgresql://postgres:postgres@localhost:5433/ai_exec_agent"),
-  // Required once OAuth token encryption is implemented (Phase 1.3).
+  // SQLite (Phase 4.1) — a `file:` path, resolved relative to
+  // prisma/schema.prisma's directory, not the process cwd.
+  DATABASE_URL: z.string().url().default("file:./dev.db"),
+  // Required for encrypting Google OAuth refresh/access tokens at rest.
+  // Base64-encoded 32-byte key, e.g. `openssl rand -base64 32`.
   ENCRYPTION_KEY: z.string().min(32).optional(),
-  OPENAI_API_KEY: z.string().optional(),
-  OPENAI_MODEL: z.string().optional(),
+  GROQ_API_KEY: z.string().optional(),
+  GROQ_MODEL: z.string().optional(),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().url().optional(),
