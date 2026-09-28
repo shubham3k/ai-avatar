@@ -1,18 +1,64 @@
 import { join } from "node:path";
-import { app, BrowserWindow, ipcMain, safeStorage, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  type MenuItemConstructorOptions,
+  nativeImage,
+  safeStorage,
+  session,
+  shell,
+  Tray,
+} from "electron";
 import { loadConfig } from "./config.js";
-import { createApiClient } from "./api-client.js";
+import { ApiClientError, createApiClient, type ApiClient } from "./api-client.js";
 import { resolveApiRoot } from "./api-location.js";
 import { startEmbeddedApiServer, type EmbeddedApiServer } from "./api-server.js";
 import { ensureEncryptionKey, loadUserConfig, saveUserConfig } from "./app-config.js";
+import { formatClockTime } from "./format-time.js";
 import { runMigrations } from "./migrate.js";
+import { createPauseState } from "./pause-state.js";
+import { createSyncScheduler, type SyncScheduler } from "./sync-scheduler.js";
+import { TRAY_ICON_DATA_URL } from "./tray-icon.js";
 import { createOverlayWindow } from "./windows/overlay-window.js";
 import { registerIpc } from "./ipc/register-ipc.js";
 
+const PAUSE_DURATIONS_MS: Array<{ label: string; ms: number }> = [
+  { label: "For 30 minutes", ms: 30 * 60_000 },
+  { label: "For 1 hour", ms: 60 * 60_000 },
+  { label: "For 4 hours", ms: 4 * 60 * 60_000 },
+];
+
 let mainWindow: BrowserWindow | null = null;
 let embeddedApi: EmbeddedApiServer | null = null;
+let syncScheduler: SyncScheduler | null = null;
+// Module-level, not local to whenReady(): Electron garbage-collects a Tray
+// with no other references, silently removing the icon from the system
+// tray — a bug that's invisible until someone actually looks for the icon,
+// not something a startup smoke test would catch.
+let tray: Tray | null = null;
+const pauseState = createPauseState();
+// Reactive state surfaced to the renderer via settings:get (see
+// register-ipc.ts) — unlike groqKeyConfigured/googleOAuthConfigured, these
+// can change mid-session, so they're read through getters, not captured
+// once at startup.
+let googleAuthError = false;
+let lastCheckedAt: number | null = null;
 
 app.whenReady().then(async () => {
+  // Electron denies media (mic/camera) permission requests by default —
+  // without this, getUserMedia() in the renderer (voice reminders) rejects
+  // silently with no OS-level prompt at all, which looks identical to "the
+  // user said no" from the renderer's side. This only grants Electron's
+  // own permission gate; the OS's own mic privacy setting (Windows
+  // Settings > Privacy > Microphone) is a separate, unavoidable gate this
+  // can't do anything about — getUserMedia still rejects if that's off,
+  // and the renderer needs to show a clear error for that case too.
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === "media");
+  });
+
   const config = loadConfig();
   const userDataDir = app.getPath("userData");
   const userConfig = loadUserConfig(userDataDir, safeStorage);
@@ -112,6 +158,30 @@ app.whenReady().then(async () => {
 
   const api = createApiClient(apiUrl);
 
+  // Wraps the real checkNow() with the bookkeeping every caller (the
+  // scheduled tick, the renderer's Check now button, and the tray's Check
+  // now item) needs: when it last ran, and whether the last attempt failed
+  // specifically because Google's authorization is gone (401/403 — see
+  // google-api-error.ts's mapGoogleApiError), as opposed to some other
+  // transient failure. All three callers route through this one function
+  // (see instrumentedApi below) so none of them have to duplicate the
+  // logic, and "last checked" / "needs reconnecting" stay consistent
+  // regardless of which of the three triggered the check.
+  async function performCheckNow(): Promise<unknown> {
+    lastCheckedAt = Date.now();
+    try {
+      const result = await api.checkNow();
+      googleAuthError = false;
+      return result;
+    } catch (err) {
+      if (err instanceof ApiClientError && (err.status === 401 || err.status === 403)) {
+        googleAuthError = true;
+      }
+      throw err;
+    }
+  }
+  const instrumentedApi: ApiClient = { ...api, checkNow: performCheckNow };
+
   mainWindow = createOverlayWindow({
     isDev: !app.isPackaged,
     devServerUrl: "http://localhost:5173",
@@ -120,13 +190,15 @@ app.whenReady().then(async () => {
   registerIpc({
     ipcMain,
     getWindow: () => mainWindow,
-    api,
+    api: instrumentedApi,
     apiUrl,
     shell,
     groqKeyConfigured,
     googleOAuthConfigured,
     secureStorageAvailable: safeStorage.isEncryptionAvailable(),
     startupError,
+    getGoogleAuthError: () => googleAuthError,
+    getLastCheckedAt: () => lastCheckedAt,
     saveGroqKeyAndRestart: (key) => {
       saveUserConfig(userDataDir, safeStorage, { groqApiKey: key });
       app.relaunch();
@@ -141,6 +213,102 @@ app.whenReady().then(async () => {
       app.exit(0);
     },
   });
+
+  // The overlay window is deliberately not a normal taskbar app (see
+  // overlay-window.ts's skipTaskbar — a frameless, transparent,
+  // always-on-top window would look broken as a taskbar entry/preview).
+  // A system tray icon is the actual "the app is running, and here's how
+  // to close it" affordance instead — there's otherwise no way to quit the
+  // app at all short of Task Manager, including when startupError is set.
+  function buildTrayMenu(): Menu {
+    const paused = pauseState.isPaused();
+    const items: MenuItemConstructorOptions[] = [
+      {
+        label: "Check now",
+        enabled: !startupError,
+        click: () => {
+          instrumentedApi.checkNow().catch(() => {
+            // Same as the renderer's own Check now button — a failed manual
+            // check just means nothing new was found this time; the next
+            // scheduled or manual check will retry.
+          });
+        },
+      },
+      { type: "separator" },
+    ];
+    if (paused) {
+      const until = pauseState.pausedUntil();
+      items.push({
+        label: until ? `Paused until ${formatClockTime(until)}` : "Paused",
+        enabled: false,
+      });
+      items.push({
+        label: "Resume notifications",
+        click: () => {
+          pauseState.resume();
+          refreshTray();
+        },
+      });
+    } else {
+      items.push({
+        label: "Pause notifications",
+        submenu: PAUSE_DURATIONS_MS.map(({ label, ms }) => ({
+          label,
+          click: () => {
+            pauseState.pause(ms);
+            refreshTray();
+          },
+        })),
+      });
+    }
+    items.push({ type: "separator" }, { label: "Quit", click: () => app.quit() });
+    return Menu.buildFromTemplate(items);
+  }
+
+  function refreshTray(): void {
+    if (!tray) return;
+    tray.setContextMenu(buildTrayMenu());
+    tray.setToolTip(
+      pauseState.isPaused() ? "AI Executive Agent — notifications paused" : "AI Executive Agent",
+    );
+  }
+
+  tray = new Tray(nativeImage.createFromDataURL(TRAY_ICON_DATA_URL));
+  refreshTray();
+  // Windows convention: left-click on a tray icon opens its menu too, not
+  // just right-click.
+  tray.on("click", () => tray?.popUpContextMenu());
+
+  // Continuous sync (replaces having to click "Check now" yourself): only
+  // meaningful once the embedded API actually started. Runs regardless of
+  // whether Google is connected yet — it checks status each tick and skips
+  // the sync itself until it is (see sync-scheduler.ts) — so it starts
+  // working automatically the moment onboarding finishes, no restart
+  // needed. The renderer's own inbox poll (use-intervention-polling.ts)
+  // picks up anything this creates; no IPC/renderer wiring needed here.
+  // Also skips entirely while paused (see pause-state.ts) — a manual Check
+  // now (button or tray) still works during a pause; only the automatic
+  // background checks are silenced. The scheduler additionally runs a
+  // 1-minute local-only delivery tick (checkDue — ADR-005) so reminders and
+  // meeting alerts land on time, Google connected or not.
+  if (!startupError) {
+    syncScheduler = createSyncScheduler({
+      api: instrumentedApi,
+      intervalMs: config.syncIntervalMinutes * 60_000,
+      isPaused: () => pauseState.isPaused(),
+      // Push-style refresh: a reminder or email picked up in the background
+      // shows immediately, instead of after the renderer's next 15s poll.
+      onTickComplete: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("inbox:changed");
+        }
+      },
+      logger: {
+        error: (message, err) => console.error(`[sync-scheduler] ${message}`, err),
+      },
+    });
+    syncScheduler.start();
+  }
 });
 
 app.on("window-all-closed", () => {
@@ -148,6 +316,9 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  syncScheduler?.stop();
+  tray?.destroy();
+  tray = null;
   if (!embeddedApi) return;
   const server = embeddedApi;
   embeddedApi = null;

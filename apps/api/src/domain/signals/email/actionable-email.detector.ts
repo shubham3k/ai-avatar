@@ -1,5 +1,6 @@
 import {
   ACTIONABLE_EMAIL_WINDOW_DAYS,
+  GENERIC_EMAIL_RULE_ID,
   isExcludedByLabels,
   isExcludedSender,
   matchHighConfidenceRules,
@@ -23,7 +24,7 @@ function senderLabel(fromName: string | null, fromEmail: string): string {
   return localPart && localPart.length > 0 ? localPart : "Someone";
 }
 
-function buildReason(
+function buildRequestReason(
   fromName: string | null,
   fromEmail: string,
   subject: string,
@@ -32,6 +33,25 @@ function buildReason(
   return subject.length > 0
     ? `${who} appears to need a response about "${subject}".`
     : `${who} appears to need a response.`;
+}
+
+/**
+ * For an email that doesn't match any explicit-request phrase but is still
+ * surfaced (every new, unread, non-automated email — see the fallback at
+ * the bottom of detectActionableEmail) — leads with the sender/subject,
+ * then the snippet as the actual context to review, rather than implying
+ * an ask that isn't really there.
+ */
+function buildGenericReason(
+  fromName: string | null,
+  fromEmail: string,
+  subject: string,
+  snippet: string,
+): string {
+  const who = senderLabel(fromName, fromEmail);
+  const subjectPart = subject.length > 0 ? ` about "${subject}"` : "";
+  const snippetPart = snippet.length > 0 ? ` ${snippet}` : "";
+  return `New email from ${who}${subjectPart}.${snippetPart}`.trim();
 }
 
 /**
@@ -86,7 +106,7 @@ export function detectActionableEmail(
     return {
       actionable: true,
       confidence: "high",
-      reason: buildReason(input.fromName, fromEmail, subject),
+      reason: buildRequestReason(input.fromName, fromEmail, subject),
       matchedRules: highMatches,
     };
   }
@@ -96,10 +116,23 @@ export function detectActionableEmail(
     return {
       actionable: true,
       confidence: "medium",
-      reason: buildReason(input.fromName, fromEmail, subject),
+      reason: buildRequestReason(input.fromName, fromEmail, subject),
       matchedRules: mediumMatches,
     };
   }
 
-  return notActionable("No actionable request language detected.");
+  // Every other unread, non-automated, in-window email is still surfaced —
+  // "actionable" here means "worth a glance," not strictly "contains an
+  // explicit ask." Confidence "medium" (not a third "low" tier): this
+  // pipeline creates the Intervention directly and unconditionally on
+  // `actionable`/`confidence` being set (see gmail-signal-detection.service.ts),
+  // unlike the separate AI-driven assistant/evaluate pipeline where "low"
+  // never surfaces at all — a "low" tier here would silently mean these
+  // emails never show up, defeating the point.
+  return {
+    actionable: true,
+    confidence: "medium",
+    reason: buildGenericReason(input.fromName, fromEmail, subject, snippet),
+    matchedRules: [GENERIC_EMAIL_RULE_ID],
+  };
 }

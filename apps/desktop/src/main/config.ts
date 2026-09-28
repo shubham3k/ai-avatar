@@ -19,6 +19,10 @@ if (envFile) {
   dotenv.config({ path: envFile });
 }
 
+const DEFAULT_SYNC_INTERVAL_MINUTES = 5;
+const MIN_SYNC_INTERVAL_MINUTES = 5;
+const MAX_SYNC_INTERVAL_MINUTES = 30;
+
 export interface AppConfig {
   /**
    * Phase 4.2: normally null, meaning "start the API in-process on a
@@ -27,11 +31,29 @@ export interface AppConfig {
    * an escape hatch for advanced dev workflows, not the default path.
    */
   apiUrl: string | null;
+  /**
+   * How often the background sync scheduler (sync-scheduler.ts) runs the
+   * checkNow sequence, in minutes. Defaults to 5 (was 15 until Sept 25,
+   * 2026 — the user's retest showed a new email waiting up to 15 minutes
+   * for the next sync), clamped to [5, 30] as a sanity bound; an
+   * out-of-range or unparseable DESKTOP_SYNC_INTERVAL_MINUTES falls back to
+   * the 5-minute default rather than silently disabling the scheduler or hammering the
+   * API.
+   */
+  syncIntervalMinutes: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const raw = env.DESKTOP_API_URL?.trim();
+  const rawInterval = Number(env.DESKTOP_SYNC_INTERVAL_MINUTES?.trim());
+  const syncIntervalMinutes =
+    Number.isFinite(rawInterval) &&
+    rawInterval >= MIN_SYNC_INTERVAL_MINUTES &&
+    rawInterval <= MAX_SYNC_INTERVAL_MINUTES
+      ? rawInterval
+      : DEFAULT_SYNC_INTERVAL_MINUTES;
   return {
     apiUrl: raw && raw.length > 0 ? raw : null,
+    syncIntervalMinutes,
   };
 }

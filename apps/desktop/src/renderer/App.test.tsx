@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
@@ -59,6 +59,25 @@ function installBridge(overrides: Partial<Bridge> = {}): Bridge {
     googleStatus: vi.fn().mockResolvedValue({ connected: true, email: "demo@example.local" }),
     disconnectGoogle: vi.fn().mockResolvedValue({ connected: false, email: null }),
     checkNow: vi.fn().mockResolvedValue({ results: [] }),
+    createReminder: vi.fn().mockResolvedValue({ id: "reminder_1" }),
+    createReminderFromText: vi.fn().mockResolvedValue({
+      ok: true,
+      reminder: {
+        id: "reminder_1",
+        text: "Drink water",
+        dueAt: "2026-09-24T16:00:00.000Z",
+        remindAt: "2026-09-24T15:50:00.000Z",
+      },
+    }),
+    createReminderFromVoice: vi.fn().mockResolvedValue({
+      ok: true,
+      reminder: {
+        id: "reminder_1",
+        text: "Drink water",
+        dueAt: "2026-09-24T16:00:00.000Z",
+        remindAt: "2026-09-24T15:50:00.000Z",
+      },
+    }),
     ...overrides,
   };
   window.desktopAPI = bridge;
@@ -122,7 +141,7 @@ describe("desktop overlay", () => {
     expect(screen.getByTestId("intervention-card")).toBeInTheDocument();
   });
 
-  it("shows the all-caught-up screen (with a Check now button) when the inbox is empty", async () => {
+  it("shows no visible card when the inbox is empty — just the small Check now link", async () => {
     installBridge({
       fetchInbox: vi.fn().mockResolvedValue({ items: [] }),
     });
@@ -131,8 +150,45 @@ describe("desktop overlay", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("intervention-card")).toBeNull();
     });
-    expect(screen.getByText("All caught up")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Check now" }).length).toBeGreaterThan(0);
+    // The idle state deliberately has no persistent box sitting on the
+    // desktop — see App.tsx's "interventions.length === 0" branch.
+    expect(screen.queryByText("All caught up")).not.toBeInTheDocument();
+    // Settings and Check now live together in the single dock pill.
+    const dock = screen.getByTestId("dock");
+    expect(within(dock).getByRole("button", { name: "Settings" })).toBeInTheDocument();
+    expect(within(dock).getByRole("button", { name: "Check now" })).toBeInTheDocument();
+  });
+
+  it("shows a newly due reminder as soon as the background scheduler pushes inbox:changed", async () => {
+    let pushInboxChanged: () => void = () => {};
+    const fetchInbox = vi.fn().mockResolvedValue({ items: [] });
+    installBridge({
+      fetchInbox,
+      onInboxChanged: vi.fn((callback: () => void) => {
+        pushInboxChanged = callback;
+        return () => {};
+      }),
+    });
+    render(<App />);
+    await waitFor(() => expect(fetchInbox).toHaveBeenCalled());
+    expect(screen.queryByTestId("intervention-card")).toBeNull();
+
+    // The reminder becomes due; the scheduler's delivery check creates it and pushes.
+    fetchInbox.mockResolvedValue({
+      items: [{ ...intervention, title: "take a break", message: "take a break" }],
+    });
+    pushInboxChanged();
+
+    expect(await screen.findByText("take a break", { selector: "*:not(p)" })).toBeInTheDocument();
+  });
+
+  it("keeps the dock visible below an intervention card", async () => {
+    installBridge();
+    render(<App />);
+
+    await screen.findByTestId("intervention-card");
+    const dock = screen.getByTestId("dock");
+    expect(within(dock).getByRole("button", { name: "Check now" })).toBeInTheDocument();
   });
 
   it("marks done through the bridge and hides the card on success", async () => {
@@ -254,6 +310,109 @@ describe("desktop overlay", () => {
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
   });
 
+  describe("reminders from the dock (no Settings detour)", () => {
+    async function openChat() {
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+      fireEvent.click(within(screen.getByTestId("dock")).getByRole("button", { name: "Type a reminder" }));
+      return screen.getByRole("textbox", { name: "What should I remind you about, and when?" });
+    }
+
+    it("adds a typed reminder via the dock's chat button", async () => {
+      const bridge = installBridge({
+        createReminderFromText: vi.fn().mockResolvedValue({
+          ok: true,
+          reminder: {
+            text: "Drink water",
+            dueAt: "2026-09-24T16:00:00.000Z",
+            remindAt: "2026-09-24T15:50:00.000Z",
+          },
+        }),
+      });
+      const input = await openChat();
+
+      fireEvent.change(input, { target: { value: "remind me to drink water at 4pm" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      await waitFor(() => {
+        expect(bridge.createReminderFromText).toHaveBeenCalledWith("remind me to drink water at 4pm");
+      });
+      // Confirms with the parsed reminder's own text, not the raw input.
+      const composer = screen.getByTestId("reminder-composer");
+      expect(await within(composer).findByText(/Drink water/)).toBeInTheDocument();
+      // The box clears after a successful add.
+      expect(input).toHaveValue("");
+    });
+
+    it("shows the API's own reason when a reminder can't be created", async () => {
+      installBridge({
+        createReminderFromText: vi.fn().mockResolvedValue({
+          ok: false,
+          message: "Your Groq API key was rejected. Update it in Settings.",
+        }),
+      });
+      const input = await openChat();
+
+      fireEvent.change(input, { target: { value: "remind me at 4pm to call Rahul" } });
+      fireEvent.click(screen.getByRole("button", { name: "Add reminder" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Your Groq API key was rejected. Update it in Settings.",
+      );
+      expect(input).toHaveValue("remind me at 4pm to call Rahul");
+    });
+
+    it("shows a generic error and keeps the input when the call itself fails", async () => {
+      installBridge({
+        createReminderFromText: vi.fn().mockRejectedValue(new Error("boom")),
+      });
+      const input = await openChat();
+
+      fireEvent.change(input, { target: { value: "Something" } });
+      fireEvent.click(screen.getByRole("button", { name: "Add reminder" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Could not create that reminder. Please try again.",
+      );
+      expect(input).toHaveValue("Something");
+    });
+
+    it("closes the chat box with Escape or the chat button", async () => {
+      installBridge();
+      const input = await openChat();
+
+      fireEvent.keyDown(input, { key: "Escape" });
+      expect(screen.queryByTestId("reminder-composer")).toBeNull();
+
+      const chatButton = within(screen.getByTestId("dock")).getByRole("button", { name: "Type a reminder" });
+      fireEvent.click(chatButton);
+      expect(screen.getByTestId("reminder-composer")).toBeInTheDocument();
+      fireEvent.click(chatButton);
+      expect(screen.queryByTestId("reminder-composer")).toBeNull();
+    });
+
+    it("shows a clear error when the dock's mic can't access the microphone (jsdom has no mediaDevices, same as a real permission denial)", async () => {
+      installBridge();
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+
+      fireEvent.click(within(screen.getByTestId("dock")).getByRole("button", { name: "Record a reminder" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Could not access the microphone");
+    });
+
+    it("no longer puts a reminder box inside Settings", async () => {
+      installBridge();
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      const card = await screen.findByTestId("settings-card");
+
+      expect(within(card).queryByText("Add a reminder")).toBeNull();
+      expect(within(card).queryByRole("textbox", { name: "What should I remind you about, and when?" })).toBeNull();
+    });
+  });
+
   it("disables Sign in with Google until Google OAuth credentials are configured (Phase 4.7)", async () => {
     installBridge({
       getSettings: vi.fn().mockResolvedValue({
@@ -357,13 +516,13 @@ describe("desktop overlay", () => {
       });
     });
 
-    it("makes the window clickable on the all-caught-up screen too", async () => {
+    it("makes the window clickable on the empty/idle screen too", async () => {
       const bridge = installBridge({
         fetchInbox: vi.fn().mockResolvedValue({ items: [] }),
       });
       render(<App />);
 
-      await screen.findByText("All caught up");
+      await screen.findByRole("button", { name: "Check now" });
       await waitFor(() => {
         expect(bridge.setInteractive).toHaveBeenCalledWith(true);
       });
@@ -410,8 +569,8 @@ describe("desktop overlay", () => {
       });
       render(<App />);
 
-      await screen.findByText("All caught up");
-      fireEvent.click(screen.getAllByRole("button", { name: "Check now" })[0]);
+      await screen.findByRole("button", { name: "Check now" });
+      fireEvent.click(screen.getByRole("button", { name: "Check now" }));
 
       await waitFor(() => {
         expect(bridge.checkNow).toHaveBeenCalled();
@@ -419,15 +578,15 @@ describe("desktop overlay", () => {
       expect(await screen.findByTestId("intervention-card")).toBeInTheDocument();
     });
 
-    it("shows an error and stays on the all-caught-up screen if checking fails", async () => {
+    it("shows an error and stays on the empty/idle screen if checking fails", async () => {
       installBridge({
         fetchInbox: vi.fn().mockResolvedValue({ items: [] }),
         checkNow: vi.fn().mockRejectedValue(new Error("Groq call failed")),
       });
       render(<App />);
 
-      await screen.findByText("All caught up");
-      fireEvent.click(screen.getAllByRole("button", { name: "Check now" })[0]);
+      await screen.findByRole("button", { name: "Check now" });
+      fireEvent.click(screen.getByRole("button", { name: "Check now" }));
 
       expect(await screen.findByRole("alert")).toHaveTextContent(
         "Could not check for updates. Please try again.",
@@ -462,6 +621,86 @@ describe("desktop overlay", () => {
 
       await screen.findByTestId("intervention-card");
       expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Google auth expiry and last-checked indicator", () => {
+    it("badges the settings gear icon when Google's authorization has expired, without leaving the current screen", async () => {
+      installBridge({
+        getSettings: vi.fn().mockResolvedValue({
+          groqKeyConfigured: true,
+          googleOAuthConfigured: true,
+          secureStorageAvailable: true,
+          startupError: null,
+          googleAuthError: true,
+        }),
+      });
+      render(<App />);
+
+      // Still on the normal intervention view — an auth error doesn't force
+      // the user out of what they're looking at (see App.tsx's comment).
+      await screen.findByTestId("intervention-card");
+      expect(screen.getByRole("button", { name: "Settings" })).toHaveClass(
+        "settings-toggle-warning",
+      );
+    });
+
+    it("does not badge the settings gear icon under normal conditions", async () => {
+      installBridge();
+      render(<App />);
+
+      await screen.findByTestId("intervention-card");
+      expect(screen.getByRole("button", { name: "Settings" })).not.toHaveClass(
+        "settings-toggle-warning",
+      );
+    });
+
+    it("shows a relative last-checked time once one is available", async () => {
+      const fixedNow = new Date("2026-09-22T12:05:00.000Z").getTime();
+      vi.spyOn(Date, "now").mockReturnValue(fixedNow);
+      installBridge({
+        getSettings: vi.fn().mockResolvedValue({
+          groqKeyConfigured: true,
+          googleOAuthConfigured: true,
+          secureStorageAvailable: true,
+          startupError: null,
+          lastCheckedAt: fixedNow - 3 * 60_000,
+        }),
+      });
+      render(<App />);
+
+      // Compact in the dock ("3m ago"), full wording on hover.
+      expect(await screen.findByTitle("Last checked 3m ago")).toHaveTextContent("3m ago");
+      vi.restoreAllMocks();
+    });
+
+    it("shows nothing for last-checked before any check has happened", async () => {
+      installBridge();
+      render(<App />);
+
+      await screen.findByTestId("intervention-card");
+      expect(screen.queryByTitle(/Last checked/)).not.toBeInTheDocument();
+    });
+
+    it("Settings shows a reconnect prompt and button when Google auth has expired, even though the stored connection still looks 'connected'", async () => {
+      installBridge({
+        getSettings: vi.fn().mockResolvedValue({
+          groqKeyConfigured: true,
+          googleOAuthConfigured: true,
+          secureStorageAvailable: true,
+          startupError: null,
+          googleAuthError: true,
+        }),
+        googleStatus: vi.fn().mockResolvedValue({ connected: true, email: "demo@example.local" }),
+      });
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+      const card = await screen.findByTestId("settings-card");
+      expect(card).toHaveTextContent(/expired or was revoked/i);
+      expect(screen.getByRole("button", { name: "Reconnect Google" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
     });
   });
 });

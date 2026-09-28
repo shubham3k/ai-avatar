@@ -34,6 +34,7 @@ model User {
   interventions Intervention[]
   agentRuns     AgentRun[]
   goals         Goal[]
+  reminders     Reminder[]
 }
 
 model Integration {
@@ -163,6 +164,33 @@ model Goal {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, active])
+}
+
+// User-created reminders ("remind me to X at Y"). reminder-detection.service.ts
+// turns a due reminder into a Signal/Intervention through the same pipeline
+// Gmail/Calendar signals use; the Reminder row itself is never marked
+// resolved — only the Intervention it spawns is, exactly like
+// Email/CalendarEvent rows already work.
+//
+// dueAt is the real deadline/event time the user cares about (e.g. "send
+// the invoice at 5pm" -> dueAt is 5pm, so the intervention's message can
+// still say "at 5pm" even though it was surfaced earlier). remindAt is when
+// the popup should actually appear — null for a reminder created with an
+// exact date/time picker (fires exactly at dueAt, the original behavior);
+// set to some time before dueAt for one parsed from free text via Groq
+// (reminders.service.ts's createReminderFromText), mirroring how a
+// calendar meeting reminder fires ahead of the meeting itself, not at it.
+model Reminder {
+  id        String    @id @default(cuid())
+  userId    String
+  text      String
+  dueAt     DateTime
+  remindAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, dueAt])
 }
 
 model AgentRun {

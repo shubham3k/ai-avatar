@@ -79,6 +79,14 @@ export const EXCLUDED_GMAIL_LABELS: string[] = [
 /** How many days back a message is still considered "reasonably recent". */
 export const ACTIONABLE_EMAIL_WINDOW_DAYS = 14;
 
+/**
+ * matchedRules id used when an email is surfaced without matching any
+ * keyword phrase above — a real, unread, non-automated email in the
+ * attention window is worth a glance on its own; it doesn't need to look
+ * like an explicit request to be worth surfacing. See detector.ts.
+ */
+export const GENERIC_EMAIL_RULE_ID = "new_email";
+
 export function isExcludedSender(fromEmail: string): boolean {
   const localPart = fromEmail.split("@")[0]?.toLowerCase() ?? "";
   if (!localPart) return false;

@@ -1,8 +1,9 @@
 # Current Status - Quick Reference
 
-**Last Updated**: September 18, 2026  
-**Phase**: Phase 1 Complete ✅ | Phase 2 (2.1–2.8B) Complete ✅ | Phase 3 (3.1–3.4) Complete ✅ | Phase 4.1 (SQLite migration) Complete ✅ | Phase 4.2 (Single-process desktop) Complete ✅ | Phase 4.3 (Onboarding & settings UI) Complete ✅ | Phase 4.4 (Secrets storage via `safeStorage`) Complete ✅ | Phase 4.5 (Auto-run migrations on first launch) Complete ✅ | Phase 4.6 (Windows packaging via electron-builder) Complete ✅ | Phase 4.7 (Clean-install validation) 🟡 Core loop verified working end-to-end by the user with their real Google account (7 real bugs found & fixed, plus a real onboarding/manual-sync feature pass); the actual clean-machine test is still the one thing outstanding  
-**Next**: Two things, in the user's own stated order — (1) build continuous/scheduled sync (poll every 5–10 min) to replace the manual "Check now" button, now that the manual cycle is proven solid; (2) finish Phase 4.7's original scope: install and run `AI Executive Agent Setup 0.1.0.exe` on a machine that has never had this repo's dev environment on it. See `docs/ONBOARDING_AND_MANUAL_SYNC.md` (this session's work) and `docs/WINDOWS_PACKAGING.md`'s Phase 4.7 section.  
+**Last Updated**: September 25, 2026
+**Phase**: Phase 1–4.7 Complete ✅ (see HANDOFF.md for the full list). Since then, an unnamed feature stretch (Sept 18–24): background sync, tray icon, pause/DND, Google-auth-expiry detection, a full UI redesign, broadened email detection, and a **reminders** feature (structured + natural-language + **voice**, via Groq). Full detail in HANDOFF.md's most recent addendum.
+**🚧 Not committed**: everything since checkpoint `b2b2f5a` is uncommitted. The `.exe` (built Sept 24, 18:19) has the Settings-scroll fix, the idle-box removal and the larger character, but **not** the Sept 25 reminder rework (ADR-005: LLM-intent parsing with local-time math, 1-minute delivery tick, 10-minute calendar alerts, real error messages) — rebuild when the user asks.
+**Next**: (1) rebuild `.exe` on request; (2) user retest of typed + voice reminders; (3) then the still-outstanding Phase 4.7 item: install/run on a genuinely clean machine.
 **⚠️ Full manual end-to-end product validation by the user has not yet been performed for Phase 3** — Phase 4's core loop (fresh install → Groq key → Google sign-in → Check now → real intervention with character) **has now been manually verified** by the user with their own Google account; automated tests + agent-driven checks otherwise. Every install verified so far, including this session's, was on the same machine that built the installer — genuine clean-machine validation is still outstanding.
 
 ---
@@ -133,6 +134,16 @@
 - `POST /api/v1/goals`, `GET /api/v1/goals?includeInactive=`, `PATCH /api/v1/goals/:id` — title/description/active only, no hierarchy or progress tracking
 - Active goals flow into `GET /context/daily` and the Groq prioritization input automatically via the existing Phase 3.1/3.2 pipeline
 - See [docs/GOALS.md](./docs/GOALS.md)
+
+### Background sync, tray, pause, reminders + voice (Sept 18–24, 2026 — not yet committed/packaged)
+- **Background sync**: runs automatically every 15 min (`DESKTOP_SYNC_INTERVAL_MINUTES`), no more manual "Check now" required, though it still works
+- **System tray icon**: Check now / Pause notifications (30min–4hr) / Quit — the only way to close the app before this existed was Task Manager
+- **Google auth-expiry detection**: a red-dot badge on the settings gear + "Reconnect Google" flow when a sync call comes back 401/403
+- **Reminders** — `POST /api/v1/reminders` (exact time), `/reminders/from-text` (free text parsed by Groq, fires *before* the deadline it mentions, not at it), `/reminders/from-voice` (recorded clip → Groq Whisper → same text-parsing path); `GET`/`DELETE /reminders` also exist. Surfaces through the existing intervention pipeline — no new UI paradigm
+- **Voice**: 🎤 button in Settings, records via the browser's own `MediaRecorder`, transcribes and schedules in one round trip
+- **Window auto-sizing + two real bug fixes**: the window now sizes to actual content instead of a fixed 380×540; Settings is now internally scrollable (was silently clipping the bottom of the page on shorter displays); the empty/idle state no longer shows a persistent "All caught up" box — just small corner text
+- **Broadened email detection**: every new unread email is now surfaced (previously only specific keyword phrases were)
+- Full detail, verification notes, and what's still open: **HANDOFF.md's most recent addendum** — read that before doing anything else in this area
 
 ---
 

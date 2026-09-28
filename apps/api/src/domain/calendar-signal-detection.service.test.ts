@@ -315,7 +315,7 @@ describe("calendar signal detection service", () => {
     expect(createCall.message).toMatch(/Client meeting starts in \d+ minutes?\./);
   });
 
-  it("assigns high priority within 10 minutes and medium priority beyond that but within 30", async () => {
+  it("surfaces a meeting within 10 minutes as high priority and ignores one 25 minutes out", async () => {
     const soonEvent = makeEvent({ id: "evt_soon", startAt: minutesFromNow(5) });
     const laterEvent = makeEvent({ id: "evt_later", startAt: minutesFromNow(25) });
     const events = makeEvents({
@@ -331,8 +331,8 @@ describe("calendar signal detection service", () => {
     await service.detectAndCreateInterventions("user_1", 10, NOW);
 
     const calls = (interventions.create as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
     expect(calls[0]![0].priority).toBe("high");
-    expect(calls[1]![0].priority).toBe("medium");
   });
 
   it("does not treat attendee presence as making an out-of-window event actionable", async () => {

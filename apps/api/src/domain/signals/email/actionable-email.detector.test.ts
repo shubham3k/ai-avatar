@@ -103,15 +103,41 @@ describe("detectActionableEmail — positive cases", () => {
   });
 });
 
-describe("detectActionableEmail — negative cases", () => {
-  it("does not flag a normal informational email", () => {
+describe("detectActionableEmail — every other unread email is still surfaced generically", () => {
+  it("flags a normal informational email as generic (medium confidence), not an explicit request", () => {
     const result = detectActionableEmail(
       makeInput({ subject: "Team update", snippet: "Here's what happened this week." }),
       NOW,
     );
-    expect(result.actionable).toBe(false);
+    expect(result.actionable).toBe(true);
+    expect(result.confidence).toBe("medium");
+    expect(result.matchedRules).toEqual(["new_email"]);
   });
 
+  it("builds a generic reason with the sender, subject, and snippet as context — not an implied request", () => {
+    const result = detectActionableEmail(
+      makeInput({
+        fromName: "Priya",
+        subject: "Team update",
+        snippet: "Here's what happened this week.",
+      }),
+      NOW,
+    );
+    expect(result.reason).toBe('New email from Priya about "Team update". Here\'s what happened this week.');
+  });
+
+  it("does not flag 'please' alone as an explicit request, but still surfaces the email generically", () => {
+    const result = detectActionableEmail(
+      makeInput({ snippet: "Please note this is an automated confirmation of receipt." }),
+      NOW,
+    );
+    expect(result.actionable).toBe(true);
+    expect(result.confidence).toBe("medium");
+    expect(result.matchedRules).toEqual(["new_email"]);
+  });
+});
+
+describe("detectActionableEmail — negative cases (genuinely excluded, not just non-matching)", () => {
   it("does not flag a newsletter (Gmail promotions category)", () => {
     const result = detectActionableEmail(
       makeInput({
@@ -166,17 +192,6 @@ describe("detectActionableEmail — negative cases", () => {
     expect(result.reason).toMatch(/already been read/i);
   });
 
-  it("does not flag generic business language with no real request", () => {
-    const result = detectActionableEmail(
-      makeInput({
-        subject: "FYI",
-        snippet: "Please note that our offices will be closed for the holiday.",
-      }),
-      NOW,
-    );
-    expect(result.actionable).toBe(false);
-  });
-
   it("does not flag an old email outside the attention window", () => {
     const result = detectActionableEmail(
       makeInput({
@@ -216,9 +231,10 @@ describe("detectActionableEmail — edge cases (must never throw)", () => {
     expect(result.actionable).toBe(true);
   });
 
-  it("handles empty-string subject and snippet without throwing", () => {
+  it("handles empty-string subject and snippet without throwing, still surfaced generically", () => {
     const result = detectActionableEmail(makeInput({ subject: "", snippet: "" }), NOW);
-    expect(result.actionable).toBe(false);
+    expect(result.actionable).toBe(true);
+    expect(result.reason).toBe("New email from Jamie.");
   });
 
   it("handles a null receivedAt without throwing", () => {
@@ -273,13 +289,5 @@ describe("detectActionableEmail — edge cases (must never throw)", () => {
     const first = detectActionableEmail(input, NOW);
     const second = detectActionableEmail(input, NOW);
     expect(first).toEqual(second);
-  });
-
-  it("does not flag 'please' alone as sufficient for a request", () => {
-    const result = detectActionableEmail(
-      makeInput({ snippet: "Please note this is an automated confirmation of receipt." }),
-      NOW,
-    );
-    expect(result.actionable).toBe(false);
   });
 });

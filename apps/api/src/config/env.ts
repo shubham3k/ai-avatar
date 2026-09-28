@@ -20,6 +20,7 @@ const envSchema = z.object({
   ENCRYPTION_KEY: z.string().min(32).optional(),
   GROQ_API_KEY: z.string().optional(),
   GROQ_MODEL: z.string().optional(),
+  GROQ_TRANSCRIBE_MODEL: z.string().optional(),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().url().optional(),

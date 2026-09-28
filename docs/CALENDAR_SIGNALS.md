@@ -56,15 +56,23 @@ signal that.
 - `status !== "cancelled"`
 - has a valid, parseable `startAt`
 - `startAt` has not already passed
-- `startAt` is within **30 minutes** from now (`ACTIONABLE_WINDOW_MINUTES`)
+- `startAt` is within **10 minutes** from now (`ACTIONABLE_WINDOW_MINUTES`)
+
+**Changed September 25, 2026 (ADR-005):** the window was 30 minutes, which
+meant a meeting could alert anywhere from 30 to ~15 minutes early depending
+on when the 15-minute sync happened to run. It's now 10 minutes — a 4pm
+meeting alerts at 3:50 — and the desktop's 1-minute local delivery tick
+(`checkDue`, see `docs/decisions/ADR-005-reminder-timing.md`) runs
+`/detect-signals` against already-synced events so the alert lands on time.
 
 **Priority (both thresholds are named constants in
 `upcoming-meeting.rules.ts`, not scattered magic numbers):**
 - `minutesUntilStart <= 10` (`HIGH_PRIORITY_WINDOW_MINUTES`) → `high`
-- `10 < minutesUntilStart <= 30` → `medium`
+- With both constants at 10, every surfaced meeting is `high`. The medium
+  tier still exists in the detector for callers passing a wider window.
 
-Both threshold checks are inclusive at their boundary (exactly 30 minutes
-out is still actionable; exactly 10 minutes out is still high priority).
+The threshold check is inclusive at its boundary (exactly 10 minutes out is
+actionable and high priority).
 
 **Attendees/organizer are never part of the decision.** They're accepted by
 the detector's input type and passed through into the signal's
@@ -86,8 +94,8 @@ if a real product requirement emerges.
 
 Built from the event title with a concrete countdown, never generic:
 - `"Client meeting starts in 8 minutes."`
-- `"Meeting with Acme starts in 25 minutes."`
-- Fallback when the title is missing/blank: `"Upcoming meeting starts in 20 minutes."`
+- `"Meeting with Acme starts in 10 minutes."`
+- Fallback when the title is missing/blank: `"Upcoming meeting starts in 10 minutes."`
 
 The event `description` is **never** included in the message or exposed by
 the detection endpoint — only the title and computed countdown.
@@ -106,8 +114,11 @@ no-op after the first run.
   organizer, or attendee count/response status.
 - No cross-source reasoning: Gmail signals and Calendar signals are entirely
   independent in this phase (Phase 2.6+ territory).
-- A meeting's actionable window is fixed and small (≤30 min) — there is no
+- A meeting's actionable window is fixed and small (≤10 min) — there is no
   "prep reminder" concept (e.g. 1 hour before) yet.
+- An event created less than ~5 minutes before it starts may not be synced
+  yet when its 10-minute mark passes (the delivery tick only sees events the
+  last full sync fetched) — it then alerts on the next sync, late.
 - No re-evaluation: once a signal exists for an event, it isn't re-scored as
   the countdown changes (e.g. it won't be silently upgraded from medium to
   high priority as the meeting gets closer — a fresh event/signal identity

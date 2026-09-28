@@ -371,3 +371,60 @@ export const updateGoalRequestSchema = z
   })
   .strict();
 export type UpdateGoalRequest = z.infer<typeof updateGoalRequestSchema>;
+
+// --- Reminders --------------------------------------------------------
+
+export const reminderDtoSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  dueAt: isoDateTimeSchema,
+  // null means "fires exactly at dueAt" (the exact-time-picker path) —
+  // set when parsed from free text, to some time before dueAt.
+  remindAt: isoDateTimeSchema.nullable(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type ReminderDto = z.infer<typeof reminderDtoSchema>;
+
+export const remindersResponseSchema = z.object({
+  reminders: z.array(reminderDtoSchema),
+});
+export type RemindersResponse = z.infer<typeof remindersResponseSchema>;
+
+export const createReminderRequestSchema = z.object({
+  text: z.string().min(1).max(500),
+  dueAt: isoDateTimeSchema,
+});
+export type CreateReminderRequest = z.infer<typeof createReminderRequestSchema>;
+
+export const createReminderFromTextRequestSchema = z.object({
+  text: z.string().min(1).max(500),
+});
+export type CreateReminderFromTextRequest = z.infer<typeof createReminderFromTextRequestSchema>;
+
+export const createReminderFromVoiceRequestSchema = z.object({
+  // Base64-encoded audio, no data: URI prefix. ~7MB cap keeps a very long
+  // recording from ballooning the request — a normal spoken reminder is a
+  // few hundred KB at most.
+  audioBase64: z.string().min(1).max(10_000_000),
+  mimeType: z.string().min(1),
+});
+export type CreateReminderFromVoiceRequest = z.infer<
+  typeof createReminderFromVoiceRequestSchema
+>;
+
+export const reminderDetectionResponseSchema = z.object({
+  analyzed: z.number().int().min(0),
+  interventionsCreated: z.number().int().min(0),
+});
+export type ReminderDetectionResponse = z.infer<typeof reminderDetectionResponseSchema>;
+
+// max mirrors REMINDER_DETECTION_MAX_LIMIT in apps/api/src/domain/reminder-detection.service.ts
+export const reminderDetectionQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(25).optional(),
+});
+
+export const deleteReminderResponseSchema = z.object({
+  deleted: z.literal(true),
+});
+export type DeleteReminderResponse = z.infer<typeof deleteReminderResponseSchema>;

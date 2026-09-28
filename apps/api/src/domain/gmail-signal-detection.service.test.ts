@@ -154,11 +154,15 @@ describe("gmail signal detection service", () => {
     );
   });
 
-  it("does not create a signal for a non-actionable email", async () => {
+  it("does not create a signal for a non-actionable (excluded-sender) email", async () => {
     const emails = makeEmails({
-      listRecent: vi
-        .fn()
-        .mockResolvedValue([makeEmail({ subject: "Weekly digest", snippet: "Here's the news." })]),
+      listRecent: vi.fn().mockResolvedValue([
+        makeEmail({
+          fromEmail: "newsletter@brand.com",
+          subject: "Weekly digest",
+          snippet: "Here's the news.",
+        }),
+      ]),
     });
     const signals = makeSignals();
     const interventions = makeInterventions();
@@ -327,14 +331,33 @@ describe("gmail signal detection service", () => {
     expect(calls[1]![0].priority).toBe("medium");
   });
 
+  it("surfaces a plain informational email generically — 'New email from X', not 'needs your response'", async () => {
+    const genericEmail = makeEmail({
+      subject: "Team update",
+      snippet: "Here's what happened this week.",
+    });
+    const emails = makeEmails({ listRecent: vi.fn().mockResolvedValue([genericEmail]) });
+    const interventions = makeInterventions();
+    const service = createGmailSignalDetectionService({
+      emails,
+      signals: makeSignals(),
+      interventions,
+    });
+
+    const result = await service.detectAndCreateInterventions("user_1", 10, NOW);
+
+    expect(result).toEqual({ analyzed: 1, actionable: 1, signalsCreated: 1, interventionsCreated: 1 });
+    const createCall = (interventions.create as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+    expect(createCall.priority).toBe("medium");
+    expect(createCall.title).toBe("New email from Jamie");
+  });
+
   it("respects the analyzed count even when no emails are actionable", async () => {
     const emails = makeEmails({
-      listRecent: vi
-        .fn()
-        .mockResolvedValue([
-          makeEmail({ id: "a", isRead: true }),
-          makeEmail({ id: "b", subject: "FYI", snippet: "no request here" }),
-        ]),
+      listRecent: vi.fn().mockResolvedValue([
+        makeEmail({ id: "a", isRead: true }),
+        makeEmail({ id: "b", fromEmail: "newsletter@brand.com", subject: "FYI", snippet: "no request here" }),
+      ]),
     });
     const service = createGmailSignalDetectionService({
       emails,

@@ -3,11 +3,21 @@ import { useCallback, useEffect, useState } from "react";
 export interface SetupStatus {
   groqKeyConfigured: boolean;
   googleConnected: boolean;
+  /** True once a sync call has come back 401/403 — Google's authorization was revoked or expired and needs reconnecting. Distinct from googleConnected: the stored connection row still exists, it just no longer works. */
+  googleAuthError: boolean;
+  /** Epoch ms of the last check attempt (scheduled or manual) this session, or null if none yet. */
+  lastCheckedAt: number | null;
 }
 
 const POLL_INTERVAL_MS = 15_000;
 
-function isSettingsResponse(value: unknown): value is { groqKeyConfigured: boolean } {
+interface SettingsResponse {
+  groqKeyConfigured: boolean;
+  googleAuthError?: boolean;
+  lastCheckedAt?: number | null;
+}
+
+function isSettingsResponse(value: unknown): value is SettingsResponse {
   return (
     !!value &&
     typeof value === "object" &&
@@ -39,15 +49,18 @@ export function useSetupStatus() {
       window.desktopAPI.getSettings(),
       window.desktopAPI.googleStatus(),
     ]);
-    const groqKeyConfigured =
+    const settings =
       settingsResult.status === "fulfilled" && isSettingsResponse(settingsResult.value)
-        ? settingsResult.value.groqKeyConfigured
-        : false;
+        ? settingsResult.value
+        : null;
+    const groqKeyConfigured = settings?.groqKeyConfigured ?? false;
+    const googleAuthError = settings?.googleAuthError ?? false;
+    const lastCheckedAt = settings?.lastCheckedAt ?? null;
     const googleConnected =
       googleResult.status === "fulfilled" && isGoogleStatusResponse(googleResult.value)
         ? googleResult.value.connected
         : false;
-    setStatus({ groqKeyConfigured, googleConnected });
+    setStatus({ groqKeyConfigured, googleConnected, googleAuthError, lastCheckedAt });
   }, []);
 
   useEffect(() => {

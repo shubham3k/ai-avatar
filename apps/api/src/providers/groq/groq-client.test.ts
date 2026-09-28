@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
 const create = vi.fn();
+const transcriptionsCreate = vi.fn();
 
 vi.mock("openai", () => ({
   default: vi.fn().mockImplementation(() => ({
     chat: { completions: { create } },
+    audio: { transcriptions: { create: transcriptionsCreate } },
   })),
+  toFile: vi.fn(async (data: unknown, filename: string) => ({ data, filename })),
 }));
 
 describe("groq client", () => {
@@ -71,6 +74,44 @@ describe("groq client", () => {
     ).rejects.toThrow(/rejected the request credentials/i);
   });
 
+  it("tags failures with a typed kind so callers can tell a bad key from an outage", async () => {
+    const { createGroqProvider, GroqProviderError } = await import("./groq-client.js");
+    const request = { instructions: "s", input: "u", schemaName: "x", jsonSchema: {} };
+
+    create.mockRejectedValue(Object.assign(new Error("Incorrect API key"), { status: 401 }));
+    await expect(
+      createGroqProvider({ apiKey: "bad-key" }).createStructuredCompletion(request),
+    ).rejects.toMatchObject({ kind: "auth_rejected" });
+
+    create.mockRejectedValue(Object.assign(new Error("Overloaded"), { status: 503 }));
+    await expect(
+      createGroqProvider({ apiKey: "key" }).createStructuredCompletion(request),
+    ).rejects.toBeInstanceOf(GroqProviderError);
+    await expect(
+      createGroqProvider({ apiKey: "key" }).createStructuredCompletion(request),
+    ).rejects.toMatchObject({ kind: "unavailable" });
+
+    create.mockRejectedValue(
+      Object.assign(new Error("Rate limit reached for model ... secret details"), {
+        status: 429,
+        code: "rate_limit_exceeded",
+      }),
+    );
+    await expect(
+      createGroqProvider({ apiKey: "key" }).createStructuredCompletion(request),
+    ).rejects.toMatchObject({ kind: "unavailable", detail: "HTTP 429 rate_limit_exceeded" });
+
+    create.mockRejectedValue(new Error("fetch failed"));
+    await expect(
+      createGroqProvider({ apiKey: "key" }).createStructuredCompletion(request),
+    ).rejects.toMatchObject({ kind: "failed", detail: "network error" });
+
+    create.mockRejectedValue(Object.assign(new Error("model_not_found"), { status: 404 }));
+    await expect(
+      createGroqProvider({ apiKey: "key" }).createStructuredCompletion(request),
+    ).rejects.toMatchObject({ kind: "model_unavailable" });
+  });
+
   it("throws a safe error on rate limit / 5xx failures", async () => {
     create.mockRejectedValue(Object.assign(new Error("Rate limited"), { status: 429 }));
     const { createGroqProvider } = await import("./groq-client.js");
@@ -114,5 +155,53 @@ describe("groq client", () => {
         jsonSchema: {},
       }),
     ).rejects.toThrow(/empty response/i);
+  });
+
+  describe("transcribeAudio", () => {
+    it("throws a clear error when no API key is configured, without calling the SDK", async () => {
+      const { createGroqProvider } = await import("./groq-client.js");
+      const provider = createGroqProvider({ apiKey: "" });
+
+      await expect(
+        provider.transcribeAudio({ audio: Buffer.from("x"), mimeType: "audio/webm" }),
+      ).rejects.toThrow(/not configured/i);
+      expect(transcriptionsCreate).not.toHaveBeenCalled();
+    });
+
+    it("sends the audio to Groq's transcription endpoint and returns the text", async () => {
+      transcriptionsCreate.mockResolvedValue({ text: "remind me to drink water at 4pm" });
+      const { createGroqProvider } = await import("./groq-client.js");
+      const provider = createGroqProvider({ apiKey: "key", transcribeModel: "whisper-large-v3-turbo" });
+
+      const result = await provider.transcribeAudio({
+        audio: Buffer.from("fake-audio-bytes"),
+        mimeType: "audio/webm",
+      });
+
+      expect(result).toBe("remind me to drink water at 4pm");
+      expect(transcriptionsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ model: "whisper-large-v3-turbo" }),
+      );
+    });
+
+    it("throws a safe error when the SDK reports an auth failure", async () => {
+      transcriptionsCreate.mockRejectedValue(Object.assign(new Error("bad key"), { status: 401 }));
+      const { createGroqProvider } = await import("./groq-client.js");
+      const provider = createGroqProvider({ apiKey: "key" });
+
+      await expect(
+        provider.transcribeAudio({ audio: Buffer.from("x"), mimeType: "audio/webm" }),
+      ).rejects.toThrow(/rejected the request credentials/i);
+    });
+
+    it("throws when the SDK returns an empty transcription", async () => {
+      transcriptionsCreate.mockResolvedValue({ text: "" });
+      const { createGroqProvider } = await import("./groq-client.js");
+      const provider = createGroqProvider({ apiKey: "key" });
+
+      await expect(
+        provider.transcribeAudio({ audio: Buffer.from("x"), mimeType: "audio/webm" }),
+      ).rejects.toThrow(/empty transcription/i);
+    });
   });
 });

@@ -121,10 +121,11 @@ describe("desktop api client", () => {
     expect(result).toEqual(status);
   });
 
-  it("checkNow runs sync -> detect-signals -> sync -> detect-signals -> evaluate in order and returns the evaluate result", async () => {
+  it("checkNow runs reminders -> sync -> detect-signals -> sync -> detect-signals -> evaluate in order and returns the evaluate result", async () => {
     const evaluateResult = { results: [{ situationId: "sit_1", created: true }] };
     const fetchImpl = vi
       .fn<FetchLike>()
+      .mockResolvedValueOnce(okResponse({ analyzed: 0, interventionsCreated: 0 })) // reminders detect-signals
       .mockResolvedValueOnce(okResponse({ fetched: 1, created: 1, updated: 0 })) // gmail sync
       .mockResolvedValueOnce(okResponse({ created: 0 })) // gmail detect-signals
       .mockResolvedValueOnce(okResponse({ fetched: 1, created: 1, updated: 0 })) // calendar sync
@@ -135,6 +136,7 @@ describe("desktop api client", () => {
     const result = await client.checkNow();
 
     expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
+      "http://localhost:4000/api/v1/reminders/detect-signals",
       "http://localhost:4000/api/v1/integrations/google/gmail/sync",
       "http://localhost:4000/api/v1/integrations/google/gmail/detect-signals",
       "http://localhost:4000/api/v1/integrations/google/calendar/sync",
@@ -148,6 +150,7 @@ describe("desktop api client", () => {
   it("checkNow stops and throws at the first step that fails, without calling later steps", async () => {
     const fetchImpl = vi
       .fn<FetchLike>()
+      .mockResolvedValueOnce(okResponse({ analyzed: 0, interventionsCreated: 0 })) // reminders ok
       .mockResolvedValueOnce(okResponse({ fetched: 1, created: 1, updated: 0 })) // gmail sync ok
       .mockResolvedValueOnce({
         ok: false,
@@ -157,7 +160,103 @@ describe("desktop api client", () => {
     const client = createApiClient("http://localhost:4000", fetchImpl);
 
     await expect(client.checkNow()).rejects.toBeInstanceOf(ApiClientError);
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("creates a reminder via POST /api/v1/reminders", async () => {
+    const reminder = { id: "rem_1", text: "Call the vendor", dueAt: new Date().toISOString() };
+    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue(okResponse(reminder));
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+
+    const result = await client.createReminder("Call the vendor", "2026-09-25T09:00:00.000Z");
+
+    expect(fetchImpl).toHaveBeenCalledWith("http://localhost:4000/api/v1/reminders", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "Call the vendor", dueAt: "2026-09-25T09:00:00.000Z" }),
+    });
+    expect(result).toEqual(reminder);
+  });
+
+  it("creates a reminder from free text via POST /api/v1/reminders/from-text", async () => {
+    const reminder = {
+      id: "rem_2",
+      text: "Drink water",
+      dueAt: "2026-09-24T16:00:00.000Z",
+      remindAt: "2026-09-24T15:50:00.000Z",
+    };
+    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue(okResponse(reminder));
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+
+    const result = await client.createReminderFromText("remind me to drink water at 4pm");
+
+    expect(fetchImpl).toHaveBeenCalledWith("http://localhost:4000/api/v1/reminders/from-text", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "remind me to drink water at 4pm" }),
+    });
+    expect(result).toEqual(reminder);
+  });
+
+  it("creates a reminder from a voice clip via POST /api/v1/reminders/from-voice", async () => {
+    const reminder = {
+      id: "rem_3",
+      text: "Drink water",
+      dueAt: "2026-09-24T16:00:00.000Z",
+      remindAt: "2026-09-24T15:50:00.000Z",
+    };
+    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue(okResponse(reminder));
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+
+    const result = await client.createReminderFromVoice("ZmFrZS1hdWRpbw==", "audio/webm");
+
+    expect(fetchImpl).toHaveBeenCalledWith("http://localhost:4000/api/v1/reminders/from-voice", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ audioBase64: "ZmFrZS1hdWRpbw==", mimeType: "audio/webm" }),
+    });
+    expect(result).toEqual(reminder);
+  });
+
+  it("keeps the API's own error message on the thrown error", async () => {
+    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => ({
+        error: { code: "upstream_error", message: "Your Groq API key was rejected. Update it in Settings." },
+      }),
+    });
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+
+    await expect(client.createReminderFromText("remind me at 4pm")).rejects.toMatchObject({
+      status: 502,
+      apiMessage: "Your Groq API key was rejected. Update it in Settings.",
+    });
+  });
+
+  it("leaves apiMessage null when the error body isn't the API's standard shape", async () => {
+    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => {
+        throw new Error("not json");
+      },
+    });
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+
+    await expect(client.fetchInbox()).rejects.toMatchObject({ status: 500, apiMessage: null });
+  });
+
+  it("checkDue runs only the local reminder and calendar detection steps, in order", async () => {
+    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue(okResponse({}));
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+
+    await client.checkDue();
+
+    expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
+      "http://localhost:4000/api/v1/reminders/detect-signals",
+      "http://localhost:4000/api/v1/integrations/google/calendar/detect-signals",
+    ]);
   });
 
   it("encodes intervention ids in URLs", async () => {

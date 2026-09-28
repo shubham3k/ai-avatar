@@ -57,7 +57,15 @@ export function useInterventionPolling() {
     const timer = setInterval(() => {
       void refresh();
     }, POLL_INTERVAL_MS);
-    return () => clearInterval(timer);
+    // Push from the main process's scheduler (a due reminder, a new email):
+    // refresh immediately; the interval above is only the fallback.
+    const unsubscribe = window.desktopAPI?.onInboxChanged?.(() => {
+      void refresh();
+    });
+    return () => {
+      clearInterval(timer);
+      unsubscribe?.();
+    };
   }, [refresh]);
 
   return { ...state, refresh };

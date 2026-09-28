@@ -23,8 +23,13 @@ function makeInput(overrides: Partial<UpcomingMeetingInput> = {}): UpcomingMeeti
 }
 
 describe("detectUpcomingMeeting — positive cases", () => {
-  it("flags a meeting starting within the 30-minute window", () => {
+  it("does not flag a meeting 25 minutes out — the window is 10 minutes (ADR-005)", () => {
     const result = detectUpcomingMeeting(makeInput({ startAt: minutesFromNow(25) }), NOW);
+    expect(result.actionable).toBe(false);
+  });
+
+  it("still supports a medium tier when called with a wider custom window", () => {
+    const result = detectUpcomingMeeting(makeInput({ startAt: minutesFromNow(25) }), NOW, 30, 10);
     expect(result.actionable).toBe(true);
     expect(result.confidence).toBe("medium");
   });
@@ -50,21 +55,21 @@ describe("detectUpcomingMeeting — positive cases", () => {
     expect(result.reason).not.toMatch(/you have a calendar event/i);
   });
 
-  it("matches the documented example: meeting with Acme in 25 minutes", () => {
+  it("matches the documented example: meeting with Acme in 10 minutes", () => {
     const result = detectUpcomingMeeting(
-      makeInput({ title: "Meeting with Acme", startAt: minutesFromNow(25) }),
+      makeInput({ title: "Meeting with Acme", startAt: minutesFromNow(10) }),
       NOW,
     );
-    expect(result.reason).toBe("Meeting with Acme starts in 25 minutes.");
-    expect(result.confidence).toBe("medium");
+    expect(result.reason).toBe("Meeting with Acme starts in 10 minutes.");
+    expect(result.confidence).toBe("high");
   });
 
   it("uses a safe fallback title when summary is missing", () => {
     const result = detectUpcomingMeeting(
-      makeInput({ title: null, startAt: minutesFromNow(20) }),
+      makeInput({ title: null, startAt: minutesFromNow(7) }),
       NOW,
     );
-    expect(result.reason).toBe("Upcoming meeting starts in 20 minutes.");
+    expect(result.reason).toBe("Upcoming meeting starts in 7 minutes.");
   });
 
   it("uses the fallback title when summary is an empty/whitespace string", () => {
@@ -125,27 +130,15 @@ describe("detectUpcomingMeeting — negative cases", () => {
 });
 
 describe("detectUpcomingMeeting — boundary cases", () => {
-  it("is actionable at exactly 30 minutes (inclusive)", () => {
-    const result = detectUpcomingMeeting(makeInput({ startAt: minutesFromNow(30) }), NOW);
-    expect(result.actionable).toBe(true);
-    expect(result.confidence).toBe("medium");
-  });
-
-  it("is not actionable at 31 minutes (just outside the window)", () => {
-    const result = detectUpcomingMeeting(makeInput({ startAt: minutesFromNow(31) }), NOW);
-    expect(result.actionable).toBe(false);
-  });
-
-  it("is high priority at exactly 10 minutes (inclusive)", () => {
+  it("is actionable and high priority at exactly 10 minutes (inclusive) — a 4pm meeting alerts at 3:50", () => {
     const result = detectUpcomingMeeting(makeInput({ startAt: minutesFromNow(10) }), NOW);
     expect(result.actionable).toBe(true);
     expect(result.confidence).toBe("high");
   });
 
-  it("is medium priority at 11 minutes (just outside the high-priority window)", () => {
+  it("is not actionable at 11 minutes (just outside the window)", () => {
     const result = detectUpcomingMeeting(makeInput({ startAt: minutesFromNow(11) }), NOW);
-    expect(result.actionable).toBe(true);
-    expect(result.confidence).toBe("medium");
+    expect(result.actionable).toBe(false);
   });
 
   it("is actionable at exactly 0 minutes (starting now)", () => {

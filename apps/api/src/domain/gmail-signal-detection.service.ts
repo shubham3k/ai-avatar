@@ -9,6 +9,7 @@ import {
   type SignalsRepository,
 } from "../db/repositories/interventions.repository.js";
 import { prisma } from "../lib/prisma.js";
+import { GENERIC_EMAIL_RULE_ID } from "./signals/email/actionable-email.rules.js";
 import { detectActionableEmail } from "./signals/email/actionable-email.detector.js";
 import type { ActionableConfidence } from "./signals/email/actionable-email.types.js";
 
@@ -35,9 +36,10 @@ function priorityFor(confidence: ActionableConfidence): "high" | "medium" {
   return confidence === "high" ? "high" : "medium";
 }
 
-function titleFor(fromName: string | null, fromEmail: string): string {
+function titleFor(fromName: string | null, fromEmail: string, matchedRules: string[]): string {
   const who = fromName?.trim() || fromEmail.split("@")[0]?.trim() || "Someone";
-  return `${who} needs your response`;
+  const isGeneric = matchedRules.length === 1 && matchedRules[0] === GENERIC_EMAIL_RULE_ID;
+  return isGeneric ? `New email from ${who}` : `${who} needs your response`;
 }
 
 export function createGmailSignalDetectionService(dependencies?: {
@@ -92,7 +94,7 @@ export function createGmailSignalDetectionService(dependencies?: {
             type: "user_action_required",
             sourceType: "email",
             sourceId: email.id,
-            title: titleFor(email.fromName, email.fromEmail),
+            title: titleFor(email.fromName, email.fromEmail, detection.matchedRules),
             summary: detection.reason,
             dueAt: null,
             importanceHints: {
@@ -111,7 +113,7 @@ export function createGmailSignalDetectionService(dependencies?: {
             userId,
             signalId: signal.id,
             priority: priorityFor(detection.confidence),
-            title: titleFor(email.fromName, email.fromEmail),
+            title: titleFor(email.fromName, email.fromEmail, detection.matchedRules),
             message: detection.reason,
             reason: detection.reason,
             actionType: "open_source",

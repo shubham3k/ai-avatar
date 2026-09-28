@@ -107,7 +107,7 @@ changed.
 
 - `GROQ_API_KEY` (required to actually call the model — see Failure
   behavior below) and `GROQ_MODEL` (optional, defaults to
-  `qwen/qwen3-32b`) — both env vars, read via the existing `env.ts` schema.
+  `qwen/qwen3.8-27b`; was `qwen/qwen3-32b` until Groq retired it in Sept 2026) — both env vars, read via the existing `env.ts` schema.
   No key/model is ever hard-coded.
 - Uses the `openai` npm package pointed at Groq's OpenAI-compatible base
   URL (`https://api.groq.com/openai/v1`), calling

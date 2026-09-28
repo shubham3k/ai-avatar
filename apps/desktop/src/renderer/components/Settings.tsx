@@ -5,6 +5,7 @@ interface SettingsStatus {
   googleOAuthConfigured: boolean;
   secureStorageAvailable: boolean;
   startupError: string | null;
+  googleAuthError?: boolean;
 }
 
 interface GoogleStatus {
@@ -46,7 +47,6 @@ export function Settings({ onClose }: SettingsProps) {
   const [googleClientSecretInput, setGoogleClientSecretInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
   const load = useCallback(async () => {
     if (!window.desktopAPI) return;
     const [settingsRaw, googleRaw] = await Promise.allSettled([
@@ -148,6 +148,12 @@ export function Settings({ onClose }: SettingsProps) {
           key is stored as plain text instead of encrypted.
         </div>
       )}
+      {status?.googleAuthError && (
+        <div className="card-error" role="alert">
+          Your Google connection has expired or was revoked — reconnect
+          below to keep syncing.
+        </div>
+      )}
 
       <div className="settings-section">
         <div className="settings-label">Groq API key</div>
@@ -216,7 +222,7 @@ export function Settings({ onClose }: SettingsProps) {
 
       <div className="settings-section">
         <div className="settings-label">Google account</div>
-        {google?.connected ? (
+        {google?.connected && !status?.googleAuthError ? (
           <>
             <div className="settings-status settings-status-ok">
               Connected{google.email ? ` as ${google.email}` : ""}
@@ -231,7 +237,11 @@ export function Settings({ onClose }: SettingsProps) {
           </>
         ) : (
           <>
-            <div className="settings-status">Not connected</div>
+            <div className="settings-status">
+              {status?.googleAuthError
+                ? "Connection expired or was revoked — reconnect to keep syncing."
+                : "Not connected"}
+            </div>
             <button
               type="button"
               className="button button-done"
@@ -243,7 +253,7 @@ export function Settings({ onClose }: SettingsProps) {
                   : "Add your Google OAuth credentials above first"
               }
             >
-              Sign in with Google
+              {status?.googleAuthError ? "Reconnect Google" : "Sign in with Google"}
             </button>
           </>
         )}

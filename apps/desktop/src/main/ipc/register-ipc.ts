@@ -1,8 +1,38 @@
 import type { BrowserWindow, IpcMain } from "electron";
-import type { ApiClient } from "../api-client.js";
+import { ApiClientError, type ApiClient } from "../api-client.js";
+import { resizeOverlayToContent } from "../windows/overlay-window.js";
 
 export interface ShellLike {
   openExternal(url: string): Promise<void>;
+}
+
+/** What the free-text/voice reminder IPC calls resolve with. */
+export type ReminderCreateResult =
+  | { ok: true; reminder: unknown }
+  | { ok: false; message: string };
+
+/**
+ * Runs a reminder-creating API call, turning the API's own curated error
+ * messages (400 input/setup problems, 502 Groq problems — e.g. "Your Groq
+ * API key was rejected. Update it in Settings.") into a failure result the
+ * renderer can show as-is. Anything else (500s, network errors) still
+ * rejects, and the renderer falls back to a generic message.
+ */
+export async function toReminderCreateResult(
+  call: () => Promise<unknown>,
+): Promise<ReminderCreateResult> {
+  try {
+    return { ok: true, reminder: await call() };
+  } catch (err) {
+    if (
+      err instanceof ApiClientError &&
+      err.apiMessage &&
+      (err.status === 400 || err.status === 502)
+    ) {
+      return { ok: false, message: err.apiMessage };
+    }
+    throw err;
+  }
 }
 
 export function registerIpc(options: {
@@ -19,6 +49,10 @@ export function registerIpc(options: {
   secureStorageAvailable: boolean;
   /** Set if the embedded API failed to start — shown by the renderer instead of a silent blank overlay. */
   startupError: string | null;
+  /** Reactive, unlike the flags above — can flip true mid-session if a sync call comes back 401/403 (expired/revoked Google auth). See index.ts's performCheckNow. */
+  getGoogleAuthError: () => boolean;
+  /** Reactive — epoch ms of the last check attempt (scheduled or manual), or null if none yet this session. Lets the renderer show "last checked Xm ago". */
+  getLastCheckedAt: () => number | null;
   /** Persists the key and restarts the whole app so the embedded API picks it up (see docs/SINGLE_PROCESS_DESKTOP.md). */
   saveGroqKeyAndRestart: (key: string) => void;
   /** Same restart-required rationale as the Groq key — see docs/SINGLE_PROCESS_DESKTOP.md. */
@@ -34,6 +68,8 @@ export function registerIpc(options: {
     googleOAuthConfigured,
     secureStorageAvailable,
     startupError,
+    getGoogleAuthError,
+    getLastCheckedAt,
     saveGroqKeyAndRestart,
     saveGoogleCredentialsAndRestart,
   } = options;
@@ -87,6 +123,8 @@ export function registerIpc(options: {
     googleOAuthConfigured,
     secureStorageAvailable,
     startupError,
+    googleAuthError: getGoogleAuthError(),
+    lastCheckedAt: getLastCheckedAt(),
   }));
 
   ipcMain.handle("settings:save-groq-key", async (_event, key: unknown) => {
@@ -115,6 +153,36 @@ export function registerIpc(options: {
 
   ipcMain.handle("assistant:check-now", async () => api.checkNow());
 
+  ipcMain.handle("reminders:create", async (_event, text: unknown, dueAt: unknown) => {
+    if (typeof text !== "string" || text.trim().length === 0) {
+      throw new Error("Invalid reminder text");
+    }
+    if (typeof dueAt !== "string" || Number.isNaN(new Date(dueAt).getTime())) {
+      throw new Error("Invalid reminder due date");
+    }
+    return api.createReminder(text, dueAt);
+  });
+
+  ipcMain.handle("reminders:create-from-text", async (_event, text: unknown) => {
+    if (typeof text !== "string" || text.trim().length === 0) {
+      throw new Error("Invalid reminder text");
+    }
+    return toReminderCreateResult(() => api.createReminderFromText(text));
+  });
+
+  ipcMain.handle(
+    "reminders:create-from-voice",
+    async (_event, audioBase64: unknown, mimeType: unknown) => {
+      if (typeof audioBase64 !== "string" || audioBase64.length === 0) {
+        throw new Error("Invalid audio data");
+      }
+      if (typeof mimeType !== "string" || mimeType.length === 0) {
+        throw new Error("Invalid audio mime type");
+      }
+      return toReminderCreateResult(() => api.createReminderFromVoice(audioBase64, mimeType));
+    },
+  );
+
   ipcMain.on("overlay:set-interactive", (_event, interactive: unknown) => {
     const win = getWindow();
     if (!win) return;
@@ -123,5 +191,11 @@ export function registerIpc(options: {
     } else {
       win.setIgnoreMouseEvents(true, { forward: true });
     }
+  });
+
+  ipcMain.on("overlay:content-size", (_event, _width: unknown, height: unknown) => {
+    const win = getWindow();
+    if (!win || typeof height !== "number" || !Number.isFinite(height)) return;
+    resizeOverlayToContent(win, height);
   });
 }

@@ -78,16 +78,34 @@ feedback`, `need your input`, `need your response`, `need your confirmation`,
 `can you`, `could you`, `can we`, `would you`, `let me know`, `following up`,
 `when can you`, `are you available`.
 
-A HIGH match always wins over a MEDIUM match on the same email. Keyword
-presence alone is never sufficient — `"please"` on its own does not match
-anything; only the specific phrases above do.
+A HIGH match always wins over a MEDIUM match on the same email.
+
+**Every other email that passes the gates above is still surfaced** —
+`matchedRules: ["new_email"]`, confidence `medium`, title `"New email from
+<sender>"` (not `"<sender> needs your response"`, which would misleadingly
+imply an explicit ask), reason built from the sender/subject/snippet as
+plain context, e.g. `"New email from Priya about \"Team update\". Here's
+what happened this week."`. This was a deliberate broadening (previously,
+an email with none of the phrases above was simply not actionable at all) —
+"actionable" now means "an unread, non-automated, in-window email worth a
+glance," not strictly "contains an explicit request." The gates (sender,
+read status, Gmail category, recency window) are what does the filtering
+now, not keyword presence.
 
 ## Priority mapping
 
-- HIGH confidence → intervention `priority: "high"`
-- MEDIUM confidence → intervention `priority: "medium"`
+- HIGH confidence (explicit request language) → intervention `priority: "high"`
+- MEDIUM confidence (softer request language, or no keyword match at all —
+  see above) → intervention `priority: "medium"`
 
 No scoring, weighting, or ranking beyond this — that's Phase 2.6's job.
+No `"low"` tier here deliberately: this pipeline (`gmail-signal-detection
+.service.ts`) creates the Signal/Intervention directly and unconditionally
+whenever `detectActionableEmail()` returns `actionable: true` — unlike the
+separate AI-driven `assistant/evaluate` pipeline (Phase 2.8A), where a
+`"low"`-confidence signal never surfaces at all. Using `"low"` here would
+silently mean generic emails never show up, defeating the point of
+surfacing them.
 
 ## Idempotency
 
@@ -114,15 +132,22 @@ No scoring, weighting, or ranking beyond this — that's Phase 2.6's job.
 
 ## Current limitations (intentional)
 
-- Deterministic keyword rules only — no NLP/AI, will miss paraphrased or
-  differently-worded requests, and can still false-positive on an email that
-  happens to contain one of the phrases without being a real request (e.g. a
-  quoted reply chain containing "can you..."). This is accepted for Phase 2.3.
-- Rules operate on subject + snippet only, not the full email body — a
-  request buried past Gmail's snippet cutoff won't be seen. Expanding to
-  full-body fetching was intentionally not done in this phase; it would
-  change the Gmail API scope of work already established in 2.2A and needs
-  its own decision, not an automatic expansion here.
+- Now that every gate-passing email is surfaced regardless of keyword match,
+  the phrase rules only affect *tiering* (high vs. medium vs. generic), not
+  whether something shows up at all — a paraphrased urgent request just
+  becomes a medium-priority generic notification instead of high, it's never
+  silently dropped the way it used to be.
+- The 14-day recency window is the only "is this new" signal available —
+  there's no separate "first seen" tracking distinguishing a genuinely new
+  arrival from a pre-existing unread email. The first `detect-signals` run
+  after connecting Gmail can surface up to 14 days of unread backlog at
+  once, one intervention per email; it's idempotent afterward (see below),
+  so this is a one-time effect, not repeated noise.
+- Rules operate on subject + snippet only, not the full email body — the
+  generic reason's context is limited to whatever Gmail's snippet includes.
+  Expanding to full-body fetching was intentionally not done in this phase;
+  it would change the Gmail API scope of work already established in 2.2A
+  and needs its own decision, not an automatic expansion here.
 - No re-evaluation: once a signal exists for an email, it's never
   re-detected/re-scored even if the email changes (e.g. later marked read is
   irrelevant since the signal already exists).

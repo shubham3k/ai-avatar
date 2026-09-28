@@ -51,6 +51,7 @@ function makeProvider(overrides: Partial<GroqProvider> = {}): GroqProvider {
         ],
       }),
     ),
+    transcribeAudio: vi.fn(),
     ...overrides,
   };
 }

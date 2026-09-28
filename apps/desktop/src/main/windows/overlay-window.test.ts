@@ -48,3 +48,56 @@ describe("createOverlayWindow", () => {
     expect(loadFile).not.toHaveBeenCalled();
   });
 });
+
+describe("resizeOverlayToContent", () => {
+  function fakeWindow(overrides: Partial<{ isDestroyed: () => boolean }> = {}) {
+    return {
+      isDestroyed: () => false,
+      setBounds: vi.fn(),
+      ...overrides,
+    };
+  }
+
+  it("resizes and repositions the window so its bottom-right corner stays anchored", async () => {
+    const { resizeOverlayToContent } = await import("./overlay-window.js");
+    const win = fakeWindow();
+
+    resizeOverlayToContent(win as never, 300);
+
+    expect(win.setBounds).toHaveBeenCalledWith({
+      x: 1920 - 380 - 24,
+      y: 1080 - 300 - 24,
+      width: 380,
+      height: 300,
+    });
+  });
+
+  it("clamps below a minimum content height", async () => {
+    const { resizeOverlayToContent } = await import("./overlay-window.js");
+    const win = fakeWindow();
+
+    resizeOverlayToContent(win as never, 10);
+
+    expect(win.setBounds).toHaveBeenCalledWith(expect.objectContaining({ height: 48 }));
+  });
+
+  it("clamps above a maximum fraction of the work area height", async () => {
+    const { resizeOverlayToContent } = await import("./overlay-window.js");
+    const win = fakeWindow();
+
+    resizeOverlayToContent(win as never, 5000);
+
+    expect(win.setBounds).toHaveBeenCalledWith(
+      expect.objectContaining({ height: Math.floor(1080 * 0.92) }),
+    );
+  });
+
+  it("does nothing once the window has been destroyed", async () => {
+    const { resizeOverlayToContent } = await import("./overlay-window.js");
+    const win = fakeWindow({ isDestroyed: () => true });
+
+    resizeOverlayToContent(win as never, 300);
+
+    expect(win.setBounds).not.toHaveBeenCalled();
+  });
+});
