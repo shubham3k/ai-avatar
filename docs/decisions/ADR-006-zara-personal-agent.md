@@ -118,10 +118,10 @@ Embedded API    agent runtime (loop: model → tool call → validated execution
 
 | # | Milestone | Outcome |
 | --- | --- | --- |
-| 0 | Housekeeping | Checkpoint commit on `main` (done: `3a96d64`), branch `zara-agent`, Groq output-token cap, clean-PC install test (user) |
-| 1 | Brain | OpenAI key + model picker + usage in Settings; reminders, voice, and prioritization on OpenAI; Groq fallback |
-| 2 | Chat | Conversation panel, agent loop with read tools + reminder tools, streaming, New chat, history, auto-hide |
-| 3 | Memory + activity log | Facts, memory page, incognito, redaction, activity log with undo |
+| 0 ✅ | Housekeeping | Checkpoint commit on `main` (`3a96d64`), branch `zara-agent`, Groq output-token cap (`d96f08a`), clean-PC install test (user) |
+| 1 ✅ | Brain | OpenAI key + model picker + usage in Settings; reminders, voice, and prioritization on OpenAI; Groq fallback (`ca77fc2`) |
+| 2 ✅ | Chat | Conversation panel, agent loop with read tools + reminder tools, streaming, New chat, history, auto-hide (`94e6181`) |
+| 3 ✅ | Memory + activity log | Facts, memory page, incognito, redaction, activity log with undo (`03b4efa`) |
 | 4 | Voice | Hotkey, spoken replies, voice picker, hands-free, interruption, Hindi/Hinglish |
 | 5 | Proactive | Briefings, pre-meeting summary, follow-ups, promises, held pop-ups, wrap-up |
 | 6 | Recall | Local index over email/chats/notes/`Documents\Zara`, notes, people memory (experimental) |
@@ -130,6 +130,14 @@ Embedded API    agent runtime (loop: model → tool call → validated execution
 | 9 | Routines | Plain-language routines, Routines page |
 
 Development happens on `zara-agent`; it is merged into `main` when complete.
+
+### Implementation notes (deviations found during M1–M3)
+
+- **`create_reminder` takes the user's own words**, not structured time fields: the tool hands the request to the dedicated reminder parser (`reminder-parsing.service.ts`, ADR-005). Live testing showed the chat model — especially the Groq fallback — filling time fields unreliably (e.g. turning "kal subah 9 baje" into 1,079 relative minutes). A per-message dedupe guard prevents repeated calls creating duplicates.
+- **Redaction is enforced at the provider boundary** (`providers/llm/redacting-provider.ts`, wrapping primary and fallback in `createLlmProvider`) rather than per feature, so no AI request can bypass it. Audio sent for transcription can't be redacted; its text output is redacted wherever it's used next.
+- **Streaming fallback** only switches to Groq if the primary failed before any text was streamed.
+- **`gpt-6-luna` requires `reasoning_effort: "none"`** on Chat Completions for function calling; all OpenAI calls also send `store: false`.
+- **Settings is tabbed** (General / Memory / Activity); the chat auto-hide seconds preference lives in renderer `localStorage`.
 
 ## Consequences
 

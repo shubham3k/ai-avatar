@@ -1,9 +1,24 @@
 # Project Handoff Document
 
-**Last Updated:** September 25, 2026
-**Phase Completed:** Phase 1 - Foundation & Demo Setup, Phase 2 (2.1–2.8B) - Google OAuth through Assistant Behavior & Intervention Lifecycle, Phase 3 (3.1–3.4) - Daily Context through Basic Goals & Commitments, Phase 4.1 - SQLite Migration, Phase 4.2 - Single-Process Desktop Architecture, Phase 4.3 - Onboarding & Settings UI, Phase 4.4 - Secrets & Config Storage, Phase 4.5 - Auto-Run Prisma Migrations on First Launch, Phase 4.6 - Windows Packaging via electron-builder, Phase 4.7 - Onboarding/Manual-Sync real-usability pass (user-verified with their real Google account)
-**In Progress — Phase 4.8 (post-4.7 feature pass, unnamed/informal):** Starting from the user's own stated plan ("build continuous/scheduled sync"), this stretch grew into a large feature pass: real background scheduling (replacing manual Check now), a system tray icon, pause/do-not-disturb, Google-auth-expiry detection, a full character-right/message-left UI redesign, broadened email detection, and — after an explicit product discussion about turning this into more of a personal assistant — a full **reminders** feature (structured + natural-language via Groq + **voice**, via Groq Whisper). See the addendum immediately below for the complete list and status. **Two real bugs were found by the user's own hands-on testing of the packaged `.exe` and fixed in source** (Settings content clipping off-screen with no scroll; a persistent "All caught up" box that should disappear when idle) — **as of this write-up those fixes are NOT yet in a packaged `.exe`** (the last successful build predates them). Rebuilding the installer is the very next step for the next session.
-**Next Phase (after this stretch closes out):** Phase 4.8 stabilization proper (Done/Snooze/Open against real non-demo data, Google disconnect/reconnect, the still-unresolved Phase-4.7 data-loss episode, no code signing/icon), then the still-outstanding genuine clean-machine install test (Phase 4.7's original, never-completed scope), then Phase 5: Mac transfer.
+**Last Updated:** September 29, 2026
+**Phase Completed:** Phases 1–4.7 (foundation → Google OAuth/Gmail/Calendar → daily context → SQLite, single-process desktop, onboarding, secrets, auto-migrations, Windows packaging), the Sept 18–28 feature stretch (background sync, tray, reminders, dock UI), and **Zara milestones M0–M3** (see below).
+
+**Current work — Zara, a local-first personal AI agent (design: `docs/decisions/ADR-006-zara-personal-agent.md`, read it first).** All Zara work is on git branch **`zara-agent`**, created from `main` after checkpoint `3a96d64`; merge back to `main` when the milestones are complete (user's instruction). Commits so far: M0 `d96f08a`, M1 `ca77fc2`, M2 `94e6181`, M3 `03b4efa`. Working tree clean at end of the Sept 29 session.
+
+| Milestone | Status |
+| --- | --- |
+| M0 housekeeping (ADR-006, Groq token cap) | ✅ |
+| M1 brain (OpenAI `gpt-6-luna` + Groq fallback, model picker, usage) | ✅ |
+| M2 chat with tools (streaming, history, voice into chat, auto-hide) | ✅ user tested the chat panel in dev mode |
+| M3 memory, redaction, incognito, activity log + undo | ✅ in source, not yet user-tested |
+| **M4 voice (hotkey Ctrl+Shift+Space, spoken replies, voice picker, hands-free, interrupt, Hindi/Hinglish)** | **next** |
+| M5 proactive · M6 recall · M7 approved actions · M8 MCP · M9 routines | planned (ADR-006) |
+
+**How the user runs it right now:** dev mode, not the installer — `pnpm --filter @ai-agent/shared build`, `pnpm --filter @ai-agent/api build`, then `pnpm --filter @ai-agent/desktop electron:dev` (quit any installed copy first: both use port 4000). The last packaged `.exe` (Sept 28, 15:17) predates M1–M3; rebuild (`npm run package:win` in `apps/desktop`) **only when the user asks**.
+
+**Keys:** the OpenAI key goes in the app's **Settings → General → "AI provider (OpenAI)"** (encrypted in `%APPDATA%\@ai-agent\desktop\config.json`, shared by dev mode and the installed app). `apps/api/.env` has no OpenAI key (only Groq), so agent-side live tests run over Groq; a real OpenAI chat has **not** been verified yet. `.env.test` blanks all AI keys so tests never make billed calls.
+
+**Working rules with this user:** discuss before building new directions; never rebuild the `.exe` or commit unasked (commits on `zara-agent` per milestone are fine — the user approved that flow); after each milestone run typecheck + lint + all tests and a live check where possible.
 
 ---
 
