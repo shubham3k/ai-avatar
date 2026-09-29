@@ -65,6 +65,15 @@ export interface ApiClient {
   checkDue(): Promise<unknown>;
   /** ADR-006: estimated AI usage for the current month (Settings). */
   usageSummary(): Promise<unknown>;
+  /** ADR-006 (M2): Zara chat — past conversations, a conversation's messages, and speech → text for the chat box. */
+  listConversations(): Promise<unknown>;
+  getConversationMessages(conversationId: string): Promise<unknown>;
+  transcribe(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
+  /** Sends a message and streams Zara's reply; resolves when the stream ends. Omit conversationId to start a new chat. */
+  sendChatMessage(
+    request: { conversationId?: string | undefined; text: string },
+    onEvent: (event: unknown) => void,
+  ): Promise<void>;
 }
 
 export interface FetchLike {
@@ -72,7 +81,50 @@ export interface FetchLike {
     ok: boolean;
     status: number;
     json(): Promise<unknown>;
+    /** Present on real fetch responses — read incrementally for streamed chat replies. */
+    body?: ReadableStream<Uint8Array> | null;
   }>;
+}
+
+/**
+ * Reads a Server-Sent Events body (`data: <json>\n\n` blocks — the chat
+ * route's format) and hands each parsed event to onEvent as it arrives.
+ * Malformed blocks are skipped rather than aborting the whole reply.
+ */
+export async function readSseStream(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (event: unknown) => void,
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const flush = (block: string) => {
+    const data = block
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (!data) return;
+    try {
+      onEvent(JSON.parse(data));
+    } catch {
+      // Skip a malformed block.
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary !== -1) {
+      flush(buffer.slice(0, boundary));
+      buffer = buffer.slice(boundary + 2);
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
+  if (buffer.trim()) flush(buffer);
 }
 
 export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as FetchLike): ApiClient {
@@ -138,6 +190,38 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
     },
     usageSummary() {
       return request("/usage/summary");
+    },
+    listConversations() {
+      return request("/chat/conversations");
+    },
+    getConversationMessages(conversationId) {
+      return request(`/chat/conversations/${encodeURIComponent(conversationId)}/messages`);
+    },
+    transcribe(audioBase64, mimeType, durationSeconds) {
+      return request("/chat/transcribe", {
+        method: "POST",
+        body: JSON.stringify({
+          audioBase64,
+          mimeType,
+          ...(durationSeconds !== undefined ? { durationSeconds } : {}),
+        }),
+      });
+    },
+    async sendChatMessage(body, onEvent) {
+      const response = await fetchImpl(`${normalizedBase}/api/v1/chat/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "text/event-stream" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        throw new ApiClientError(
+          `API request failed (${response.status}) POST /chat/messages`,
+          response.status,
+          await readApiErrorMessage(response),
+        );
+      }
+      if (!response.body) throw new ApiClientError("Chat reply had no body", response.status);
+      await readSseStream(response.body, onEvent);
     },
     async checkNow() {
       await request("/reminders/detect-signals", { method: "POST", body: "{}" });

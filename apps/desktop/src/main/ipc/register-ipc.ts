@@ -6,6 +6,17 @@ export interface ShellLike {
   openExternal(url: string): Promise<void>;
 }
 
+/** What chat IPC calls resolve with — a curated message on failure, never a raw error. */
+export type ChatActionResult<T> = { ok: true; value: T } | { ok: false; message: string };
+
+/** The API's own curated message (400 input problems, 404, 502 provider problems), else the fallback. */
+export function userFacingApiMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiClientError && err.apiMessage && [400, 404, 502].includes(err.status)) {
+    return err.apiMessage;
+  }
+  return fallback;
+}
+
 /** What the free-text/voice reminder IPC calls resolve with. */
 export type ReminderCreateResult =
   | { ok: true; reminder: unknown }
@@ -171,6 +182,60 @@ export function registerIpc(options: {
   });
 
   ipcMain.handle("usage:summary", async () => api.usageSummary());
+
+  // ADR-006 (M2): Zara chat.
+  ipcMain.handle("chat:list", async () => api.listConversations());
+
+  ipcMain.handle("chat:messages", async (_event, conversationId: unknown) => {
+    if (typeof conversationId !== "string" || conversationId.length === 0) {
+      throw new Error("Invalid conversation id");
+    }
+    return api.getConversationMessages(conversationId);
+  });
+
+  ipcMain.handle(
+    "chat:transcribe",
+    async (_event, audioBase64: unknown, mimeType: unknown, durationSeconds: unknown): Promise<ChatActionResult<string>> => {
+      if (typeof audioBase64 !== "string" || audioBase64.length === 0) return { ok: false, message: "No audio was recorded. Try again." };
+      if (typeof mimeType !== "string" || mimeType.length === 0) return { ok: false, message: "Invalid audio format." };
+      const duration =
+        typeof durationSeconds === "number" && Number.isFinite(durationSeconds) && durationSeconds >= 0 && durationSeconds <= 600
+          ? durationSeconds
+          : undefined;
+      try {
+        const result = (await api.transcribe(audioBase64, mimeType, duration)) as { text?: unknown };
+        return typeof result?.text === "string"
+          ? { ok: true, value: result.text }
+          : { ok: false, message: "Couldn't understand the recording. Try again." };
+      } catch (err) {
+        return { ok: false, message: userFacingApiMessage(err, "Couldn't transcribe that. Try again.") };
+      }
+    },
+  );
+
+  // Streams Zara's reply to the requesting window as "chat:event" messages
+  // tagged with the renderer's requestId; resolves once the reply is complete.
+  ipcMain.handle(
+    "chat:send",
+    async (event, requestId: unknown, conversationId: unknown, text: unknown): Promise<ChatActionResult<null>> => {
+      if (typeof requestId !== "string" || requestId.length === 0) throw new Error("Invalid request id");
+      if (typeof text !== "string" || text.trim().length === 0) return { ok: false, message: "Type a message first." };
+      if (conversationId !== undefined && conversationId !== null && typeof conversationId !== "string") {
+        throw new Error("Invalid conversation id");
+      }
+      try {
+        await api.sendChatMessage(
+          { conversationId: typeof conversationId === "string" ? conversationId : undefined, text: text.trim() },
+          (chatEvent) => {
+            if (!event.sender.isDestroyed()) event.sender.send("chat:event", requestId, chatEvent);
+          },
+        );
+        return { ok: true, value: null };
+      } catch (err) {
+        return { ok: false, message: userFacingApiMessage(err, "Zara couldn't be reached. Please try again.") };
+      }
+    },
+  );
 
   ipcMain.handle("settings:save-groq-key", async (_event, key: unknown) => {
     if (typeof key !== "string" || key.trim().length === 0) {

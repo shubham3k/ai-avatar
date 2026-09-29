@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Dock } from "./components/Dock";
 import { InterventionOverlay } from "./components/InterventionOverlay";
 import { InterventionStatus } from "./components/InterventionStatus";
-import { ReminderComposer } from "./components/ReminderComposer";
+import { ChatPanel } from "./components/ChatPanel";
 import { Settings } from "./components/Settings";
 import type { InterventionActionSpec } from "./lib/intervention-actions";
+import { getChatAutoHideSeconds } from "./lib/preferences";
 import { useInterventionPolling } from "./state/use-intervention-polling";
-import { useReminderComposer } from "./state/use-reminder-composer";
+import { useZaraChat } from "./state/use-zara-chat";
 import { useReportContentSize } from "./state/use-report-content-size";
 import { useSetupStatus } from "./state/use-setup-status";
 
@@ -25,7 +26,7 @@ export default function App() {
   const [checkError, setCheckError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reminders = useReminderComposer();
+  const chat = useZaraChat();
   const [chatOpen, setChatOpen] = useState(false);
 
   // A brief, self-clearing confirmation after an action succeeds — kept
@@ -162,23 +163,26 @@ export default function App() {
     [handleDone, handleSnooze, handleOpen],
   );
 
-  const clearReminderFeedback = reminders.clearFeedback;
-  const closeChat = useCallback(() => {
-    setChatOpen(false);
-    clearReminderFeedback();
-  }, [clearReminderFeedback]);
+  const closeChat = useCallback(() => setChatOpen(false), []);
+  const toggleMic = chat.toggleRecording;
+  // Speaking to Zara opens her chat, so the transcript and reply are visible.
+  const handleMic = useCallback(() => {
+    setShowSettings(false);
+    setChatOpen(true);
+    toggleMic();
+  }, [toggleMic]);
 
   // The persistent bottom-right control pill, rendered last on every screen,
-  // with the reminder composer (💬 text box / 🎤 status bubble) directly
-  // above it. "last checked" reflects the scheduled tick, the tray's Check
-  // now, and the dock's own button, whichever ran most recently (see
-  // index.ts's performCheckNow); useSetupStatus re-renders every 15s, which
-  // keeps the relative time roughly fresh. Screens where nothing can run yet
-  // (startup error, get-started) get the gear only.
+  // with Zara's chat panel (ADR-006 M2) directly above it when open. "last
+  // checked" reflects the scheduled tick, the tray's Check now, and the
+  // dock's own button, whichever ran most recently (see index.ts's
+  // performCheckNow); useSetupStatus re-renders every 15s, which keeps the
+  // relative time roughly fresh. Screens where nothing can run yet (startup
+  // error, get-started) get the gear only.
   const renderDock = (fullControls: boolean) => (
     <>
-      {fullControls && (
-        <ReminderComposer composer={reminders} chatOpen={chatOpen} onClose={closeChat} />
+      {fullControls && chatOpen && (
+        <ChatPanel chat={chat} onClose={closeChat} autoHideSeconds={getChatAutoHideSeconds()} />
       )}
       <Dock
         onToggleSettings={() => setShowSettings((prev) => !prev)}
@@ -186,9 +190,9 @@ export default function App() {
         onCheckNow={fullControls ? () => void handleCheckNow() : undefined}
         checking={checking}
         lastCheckedAt={fullControls ? (setupStatus?.lastCheckedAt ?? null) : null}
-        onToggleMic={fullControls ? reminders.toggleRecording : undefined}
-        recording={reminders.recording}
-        micBusy={reminders.transcribing}
+        onToggleMic={fullControls ? handleMic : undefined}
+        recording={chat.recording}
+        micBusy={chat.transcribing}
         onToggleChat={
           fullControls
             ? () => {

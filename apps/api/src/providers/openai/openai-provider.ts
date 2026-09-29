@@ -35,6 +35,7 @@ export function createOpenAiProvider(overrides?: {
       // and reasoning tokens would otherwise eat into max_completion_tokens.
       reasoning_effort: "none",
     },
+    streamUsage: true,
     ...(overrides?.onUsage ? { onUsage: overrides.onUsage } : {}),
   });
 }

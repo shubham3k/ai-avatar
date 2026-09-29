@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  getChatAutoHideSeconds,
+  MAX_CHAT_AUTO_HIDE_SECONDS,
+  setChatAutoHideSeconds,
+} from "../lib/preferences";
 
 interface ModelChoice {
   id: string;
@@ -87,6 +92,7 @@ export function Settings({ onClose }: SettingsProps) {
   const [openaiKeyInput, setOpenaiKeyInput] = useState("");
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [autoHideSeconds, setAutoHideSeconds] = useState(getChatAutoHideSeconds);
   const [googleClientIdInput, setGoogleClientIdInput] = useState("");
   const [googleClientSecretInput, setGoogleClientSecretInput] = useState("");
   const [saving, setSaving] = useState(false);
@@ -294,6 +300,29 @@ export function Settings({ onClose }: SettingsProps) {
           </div>
         )}
       </div>
+
+      {onClose && (
+        <div className="settings-section">
+          <label className="settings-label" htmlFor="chat-auto-hide">
+            Chat — hide after inactivity (seconds)
+          </label>
+          <div className="settings-hint">0 keeps the chat open until you close it.</div>
+          <input
+            id="chat-auto-hide"
+            className="settings-input"
+            type="number"
+            min={0}
+            max={MAX_CHAT_AUTO_HIDE_SECONDS}
+            value={autoHideSeconds}
+            onChange={(e) => {
+              const value = Number(e.target.value);
+              if (!Number.isFinite(value)) return;
+              setChatAutoHideSeconds(value);
+              setAutoHideSeconds(getChatAutoHideSeconds());
+            }}
+          />
+        </div>
+      )}
 
       <div className="settings-section">
         <div className="settings-label">Groq API key (backup, optional)</div>

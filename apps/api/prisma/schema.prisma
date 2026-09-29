@@ -227,3 +227,30 @@ model LlmUsage {
 
   @@index([createdAt])
 }
+
+// ADR-006 (M2): chats with Zara. Stored locally forever (deletion options
+// arrive with M3). Only what the user and Zara said is stored — tool calls
+// and their results are transient, re-derived from local data each turn.
+model Conversation {
+  id        String        @id @default(cuid())
+  userId    String
+  title     String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+
+  @@index([userId, updatedAt])
+}
+
+model ChatMessage {
+  id             String       @id @default(cuid())
+  conversationId String
+  role           String // "user" | "assistant"
+  content        String
+  // Which provider produced an assistant reply ("openai" | "groq"); null for user messages.
+  provider       String?
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}

@@ -21,6 +21,11 @@ interface DesktopApiBridge {
   createReminderFromVoice(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
   /** Background check finished — refresh now. Optional so older bridges/test doubles still work. */
   onInboxChanged?(callback: () => void): () => void;
+  /** ADR-006 (M2): Zara chat. Optional so older test doubles still type-check. */
+  chatList?(): Promise<unknown>;
+  chatMessages?(conversationId: string): Promise<unknown>;
+  chatTranscribe?(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
+  chatSend?(conversationId: string | null, text: string, onEvent: (event: unknown) => void): Promise<unknown>;
 }
 
 declare global {

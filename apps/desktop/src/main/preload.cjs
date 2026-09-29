@@ -27,6 +27,20 @@ const bridge = {
     ipcRenderer.invoke("reminders:create-from-text", text),
   createReminderFromVoice: (audioBase64, mimeType, durationSeconds) =>
     ipcRenderer.invoke("reminders:create-from-voice", audioBase64, mimeType, durationSeconds),
+  chatList: () => ipcRenderer.invoke("chat:list"),
+  chatMessages: (conversationId) => ipcRenderer.invoke("chat:messages", conversationId),
+  chatTranscribe: (audioBase64, mimeType, durationSeconds) =>
+    ipcRenderer.invoke("chat:transcribe", audioBase64, mimeType, durationSeconds),
+  chatSend: (conversationId, text, onEvent) => {
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const listener = (_event, id, chatEvent) => {
+      if (id === requestId) onEvent(chatEvent);
+    };
+    ipcRenderer.on("chat:event", listener);
+    return ipcRenderer
+      .invoke("chat:send", requestId, conversationId, text)
+      .finally(() => ipcRenderer.removeListener("chat:event", listener));
+  },
   onInboxChanged: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("inbox:changed", listener);

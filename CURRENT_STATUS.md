@@ -1,7 +1,7 @@
 # Current Status - Quick Reference
 
 **Last Updated**: September 29, 2026
-**🧠 Zara (ADR-006) in progress on branch `zara-agent`:** M0 done (design record, Groq token cap); M1 done in source (OpenAI `gpt-6-luna` primary + Groq fallback, model picker, usage this month). Next: M2 chat. See HANDOFF.md's newest addendum.
+**🧠 Zara (ADR-006) in progress on branch `zara-agent`:** M0 done (design record, Groq token cap); M1 done (OpenAI `gpt-6-luna` primary + Groq fallback, model picker, usage this month); M2 done in source (chat panel with streaming replies, tools for calendar/email/alerts/reminders, history, voice into chat, auto-hide). Next: M3 memory + activity log. See HANDOFF.md's newest addendum.
 **Phase**: Phase 1–4.7 Complete ✅ (see HANDOFF.md for the full list). Since then, an unnamed feature stretch (Sept 18–24): background sync, tray icon, pause/DND, Google-auth-expiry detection, a full UI redesign, broadened email detection, and a **reminders** feature (structured + natural-language + **voice**, via Groq). Full detail in HANDOFF.md's most recent addendum.
 **🚧 Not committed**: everything since checkpoint `b2b2f5a` is uncommitted. The `.exe` (built Sept 24, 18:19) has the Settings-scroll fix, the idle-box removal and the larger character, but **not** the Sept 25 reminder rework (ADR-005: LLM-intent parsing with local-time math, 1-minute delivery tick, 10-minute calendar alerts, real error messages) — rebuild when the user asks.
 **Next**: (1) rebuild `.exe` on request; (2) user retest of typed + voice reminders; (3) then the still-outstanding Phase 4.7 item: install/run on a genuinely clean machine.

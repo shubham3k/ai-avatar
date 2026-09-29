@@ -259,6 +259,52 @@ describe("desktop api client", () => {
     ]);
   });
 
+  it("streams a chat reply, handing each Server-Sent Event over as it arrives (chunks may split events)", async () => {
+    const encoder = new TextEncoder();
+    const chunks = [
+      'data: {"type":"conversation","id":"c1","title":"hi"}\n\ndata: {"type":"del',
+      'ta","text":"Hel"}\n\n',
+      'data: {"type":"delta","text":"lo"}\r\n\r\ndata: not-json\n\n',
+      'data: {"type":"done","message":{"id":"m1"}}',
+    ];
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        controller.close();
+      },
+    });
+    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue({ ok: true, status: 200, json: async () => ({}), body });
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+    const events: unknown[] = [];
+
+    await client.sendChatMessage({ text: "hi" }, (e) => events.push(e));
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://localhost:4000/api/v1/chat/messages",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ text: "hi" }) }),
+    );
+    expect(events).toEqual([
+      { type: "conversation", id: "c1", title: "hi" },
+      { type: "delta", text: "Hel" },
+      { type: "delta", text: "lo" },
+      { type: "done", message: { id: "m1" } },
+    ]);
+  });
+
+  it("throws the API's message when a chat request is rejected before streaming", async () => {
+    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: { code: "not_found", message: "Conversation not found." } }),
+    });
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+
+    await expect(client.sendChatMessage({ conversationId: "x", text: "hi" }, () => {})).rejects.toMatchObject({
+      status: 404,
+      apiMessage: "Conversation not found.",
+    });
+  });
+
   it("encodes intervention ids in URLs", async () => {
     const fetchImpl = vi.fn<FetchLike>().mockResolvedValue(okResponse(intervention));
     const client = createApiClient("http://localhost:4000/", fetchImpl);

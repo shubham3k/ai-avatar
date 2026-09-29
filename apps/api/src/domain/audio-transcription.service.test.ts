@@ -6,6 +6,7 @@ function makeProvider(overrides: Partial<GroqProvider> = {}): GroqProvider {
   return {
     createStructuredCompletion: vi.fn(),
     transcribeAudio: vi.fn().mockResolvedValue("remind me to drink water at 4pm"),
+    streamChat: vi.fn(),
     ...overrides,
   };
 }

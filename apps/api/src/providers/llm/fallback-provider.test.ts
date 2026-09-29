@@ -8,6 +8,7 @@ function provider(result: Promise<string>): LlmProvider {
   return {
     createStructuredCompletion: vi.fn().mockReturnValue(result),
     transcribeAudio: vi.fn().mockReturnValue(result),
+    streamChat: vi.fn().mockReturnValue(result),
   };
 }
 
@@ -59,5 +60,40 @@ describe("createFallbackProvider", () => {
   it("returns the primary unchanged when there is no backup", () => {
     const primary = provider(Promise.resolve("primary"));
     expect(createFallbackProvider(primary, null)).toBe(primary);
+  });
+});
+
+describe("createFallbackProvider — streamChat", () => {
+  const chatRequest = { messages: [{ role: "user" as const, content: "hi" }], tools: [] };
+
+  function chatProvider(streamChat: LlmProvider["streamChat"]): LlmProvider {
+    return { createStructuredCompletion: vi.fn(), transcribeAudio: vi.fn(), streamChat };
+  }
+
+  it("switches to the backup if the primary fails before streaming anything", async () => {
+    const backup = chatProvider(async (_r, onDelta) => {
+      onDelta("from backup");
+      return { content: "from backup", toolCalls: [], provider: "groq" };
+    });
+    const primary = chatProvider(async () => {
+      throw outage;
+    });
+    const deltas: string[] = [];
+
+    const result = await createFallbackProvider(primary, backup).streamChat(chatRequest, (d) => deltas.push(d));
+
+    expect(result.provider).toBe("groq");
+    expect(deltas).toEqual(["from backup"]);
+  });
+
+  it("never switches mid-reply — once text was streamed, the error surfaces", async () => {
+    const backup = chatProvider(vi.fn());
+    const primary = chatProvider(async (_r, onDelta) => {
+      onDelta("partial ");
+      throw outage;
+    });
+
+    await expect(createFallbackProvider(primary, backup).streamChat(chatRequest, () => {})).rejects.toBe(outage);
+    expect(backup.streamChat).not.toHaveBeenCalled();
   });
 });

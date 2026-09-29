@@ -1,6 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { ApiClientError } from "../api-client";
-import { isOpenAiModelChoice, OPENAI_MODEL_CHOICES, toReminderCreateResult } from "./register-ipc";
+import {
+  isOpenAiModelChoice,
+  OPENAI_MODEL_CHOICES,
+  toReminderCreateResult,
+  userFacingApiMessage,
+} from "./register-ipc";
+
+describe("userFacingApiMessage (chat IPC)", () => {
+  it("passes through the API's curated messages for 400/404/502", () => {
+    for (const status of [400, 404, 502]) {
+      expect(userFacingApiMessage(new ApiClientError("x", status, "Curated."), "fallback")).toBe("Curated.");
+    }
+  });
+
+  it("falls back for 500s, missing messages, and non-API errors", () => {
+    expect(userFacingApiMessage(new ApiClientError("x", 500, "Internal server error"), "fallback")).toBe("fallback");
+    expect(userFacingApiMessage(new ApiClientError("x", 400, null), "fallback")).toBe("fallback");
+    expect(userFacingApiMessage(new Error("fetch failed"), "fallback")).toBe("fallback");
+  });
+});
 
 describe("OpenAI model choices (ADR-006)", () => {
   it("offers the cheapest, the recommended default, and the most capable model", () => {

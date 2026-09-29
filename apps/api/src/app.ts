@@ -17,6 +17,7 @@ import { assistantRoutes } from "./routes/assistant.js";
 import { goalsRoutes } from "./routes/goals.js";
 import { remindersRoutes } from "./routes/reminders.js";
 import { usageRoutes } from "./routes/usage.js";
+import { chatRoutes } from "./routes/chat.js";
 import { ensureDemoUser } from "./demo/demo-scenario.js";
 import { prisma } from "./lib/prisma.js";
 
@@ -74,6 +75,7 @@ export function buildApp() {
   app.register(goalsRoutes, { prefix: "/api/v1/goals" });
   app.register(remindersRoutes, { prefix: "/api/v1/reminders" });
   app.register(usageRoutes, { prefix: "/api/v1/usage" });
+  app.register(chatRoutes, { prefix: "/api/v1/chat" });
 
   // This app is single-user (see ensureDemoUser's own comment) — every
   // route needs this row to exist before it can do anything. Runs on

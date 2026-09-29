@@ -33,6 +33,7 @@ function makeProvider(overrides: Partial<GroqProvider> = {}): GroqProvider {
   return {
     createStructuredCompletion: vi.fn().mockResolvedValue(intentJson()),
     transcribeAudio: vi.fn(),
+    streamChat: vi.fn(),
     ...overrides,
   };
 }

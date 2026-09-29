@@ -84,9 +84,9 @@ export function Dock({
             <button
               type="button"
               className={`dock-button dock-icon dock-mic${recording ? " dock-recording" : ""}`}
-              aria-label={recording ? "Stop recording" : "Record a reminder"}
+              aria-label={recording ? "Stop recording" : "Talk to Zara"}
               aria-pressed={recording}
-              title={recording ? "Stop and set the reminder" : "Say a reminder"}
+              title={recording ? "Stop and send to Zara" : "Talk to Zara"}
               disabled={micBusy}
               onClick={onToggleMic}
             >
@@ -97,9 +97,9 @@ export function Dock({
             <button
               type="button"
               className={`dock-button dock-icon${chatOpen ? " dock-active" : ""}`}
-              aria-label="Type a reminder"
+              aria-label="Chat with Zara"
               aria-pressed={chatOpen}
-              title="Type a reminder"
+              title="Chat with Zara"
               onClick={onToggleChat}
             >
               <ChatIcon />

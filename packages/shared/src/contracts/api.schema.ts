@@ -446,3 +446,36 @@ export const llmUsageSummaryResponseSchema = z.object({
   groq: providerUsageSchema,
 });
 export type LlmUsageSummaryResponse = z.infer<typeof llmUsageSummaryResponseSchema>;
+
+// ADR-006 (M2): chatting with Zara.
+export const sendChatMessageRequestSchema = z.object({
+  // Omit to start a new conversation (titled from the first message).
+  conversationId: z.string().min(1).optional(),
+  text: z.string().trim().min(1).max(4000),
+});
+export type SendChatMessageRequest = z.infer<typeof sendChatMessageRequestSchema>;
+
+export const chatMessageDtoSchema = z.object({
+  id: z.string(),
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+  provider: z.enum(["openai", "groq"]).nullable(),
+  createdAt: z.string(),
+});
+export type ChatMessageDto = z.infer<typeof chatMessageDtoSchema>;
+
+export const chatMessagesResponseSchema = z.object({ messages: z.array(chatMessageDtoSchema) });
+
+export const conversationSummarySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  updatedAt: z.string(),
+});
+export const conversationsResponseSchema = z.object({ conversations: z.array(conversationSummarySchema) });
+
+export const transcribeRequestSchema = z.object({
+  audioBase64: z.string().min(1).max(10_000_000),
+  mimeType: z.string().min(1),
+  durationSeconds: z.number().min(0).max(600).optional(),
+});
+export const transcribeResponseSchema = z.object({ text: z.string() });

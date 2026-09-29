@@ -1,12 +1,18 @@
 import OpenAI, { toFile } from "openai";
-import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions.js";
+import type {
+  ChatCompletionCreateParamsNonStreaming,
+  ChatCompletionCreateParamsStreaming,
+  ChatCompletionMessageParam,
+} from "openai/resources/chat/completions.js";
 import {
   DEFAULT_MAX_OUTPUT_TOKENS,
   LlmProviderError,
   PROVIDER_LABELS,
+  type ChatTurnMessage,
   type LlmProvider,
   type LlmProviderName,
   type LlmUsageListener,
+  type ToolCall,
 } from "./llm-provider.js";
 
 export interface OpenAiCompatibleConfig {
@@ -18,7 +24,48 @@ export interface OpenAiCompatibleConfig {
   transcribeModel: string;
   /** Provider-specific Chat Completions fields (e.g. OpenAI's `store: false`, `reasoning_effort`). */
   extraChatParams?: Record<string, unknown>;
+  /** Ask for token usage on the final streamed chunk (`stream_options.include_usage`) — OpenAI supports it. */
+  streamUsage?: boolean;
   onUsage?: LlmUsageListener;
+}
+
+type OpenAiChatMessage = ChatCompletionMessageParam;
+
+function toOpenAiMessages(messages: ChatTurnMessage[]): OpenAiChatMessage[] {
+  return messages.map((message): OpenAiChatMessage => {
+    if (message.role === "tool") {
+      return { role: "tool", tool_call_id: message.toolCallId, content: message.content };
+    }
+    if (message.role === "assistant") {
+      return {
+        role: "assistant",
+        content: message.content,
+        ...(message.toolCalls && message.toolCalls.length > 0
+          ? {
+              tool_calls: message.toolCalls.map((call) => ({
+                id: call.id,
+                type: "function" as const,
+                function: { name: call.name, arguments: call.arguments },
+              })),
+            }
+          : {}),
+      };
+    }
+    return { role: message.role, content: message.content };
+  });
+}
+
+interface StreamUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number } | null;
+}
+
+/** OpenAI reports usage on `chunk.usage`; Groq on `chunk.x_groq.usage`. */
+function chunkUsage(chunk: unknown): StreamUsage | null {
+  if (!chunk || typeof chunk !== "object") return null;
+  const record = chunk as { usage?: StreamUsage | null; x_groq?: { usage?: StreamUsage } };
+  return record.usage ?? record.x_groq?.usage ?? null;
 }
 
 function extractStatus(err: unknown): number | undefined {
@@ -166,6 +213,67 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleConfig): 
       // An empty transcription is a valid result ("didn't catch anything"),
       // handled by audio-transcription.service.ts — not a provider failure.
       return text ?? "";
+    },
+
+    async streamChat(request, onTextDelta) {
+      const api = client();
+      const body = {
+        model: config.model,
+        messages: toOpenAiMessages(request.messages),
+        ...(request.tools.length > 0
+          ? {
+              tools: request.tools.map((tool) => ({
+                type: "function" as const,
+                function: { name: tool.name, description: tool.description, parameters: tool.parameters },
+              })),
+            }
+          : {}),
+        max_completion_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+        stream: true,
+        ...(config.streamUsage ? { stream_options: { include_usage: true } } : {}),
+        ...config.extraChatParams,
+      } as ChatCompletionCreateParamsStreaming;
+
+      let content = "";
+      const calls: ToolCall[] = [];
+      let usage: StreamUsage | null = null;
+      try {
+        const stream = await api.chat.completions.create(body);
+        for await (const chunk of stream) {
+          usage = chunkUsage(chunk) ?? usage;
+          const delta = chunk.choices[0]?.delta;
+          if (!delta) continue;
+          if (delta.content) {
+            content += delta.content;
+            onTextDelta(delta.content);
+          }
+          // Tool calls arrive in fragments, keyed by index.
+          for (const fragment of delta.tool_calls ?? []) {
+            const slot = (calls[fragment.index] ??= { id: "", name: "", arguments: "" });
+            if (fragment.id) slot.id = fragment.id;
+            if (fragment.function?.name) slot.name += fragment.function.name;
+            if (fragment.function?.arguments) slot.arguments += fragment.function.arguments;
+          }
+        }
+      } catch (err) {
+        throw mapError(err, config.provider);
+      }
+
+      config.onUsage?.({
+        provider: config.provider,
+        model: config.model,
+        operation: request.operation ?? "chat",
+        inputTokens: usage?.prompt_tokens ?? 0,
+        cachedInputTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
+        outputTokens: usage?.completion_tokens ?? 0,
+        audioSeconds: 0,
+      });
+
+      return {
+        content,
+        toolCalls: calls.filter((call) => call.name.length > 0),
+        provider: config.provider,
+      };
     },
   };
 }

@@ -23,6 +23,12 @@ export interface DesktopApiBridge {
   createReminderFromVoice(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
   /** Fires when the main process's background scheduler finishes a check; returns an unsubscribe function. */
   onInboxChanged(callback: () => void): () => void;
+  /** ADR-006 (M2): Zara chat. */
+  chatList(): Promise<unknown>;
+  chatMessages(conversationId: string): Promise<unknown>;
+  chatTranscribe(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
+  /** Streams Zara's reply through onEvent; resolves `{ ok, value | message }` when the reply is complete. */
+  chatSend(conversationId: string | null, text: string, onEvent: (event: unknown) => void): Promise<unknown>;
 }
 
 const bridge: DesktopApiBridge = {
@@ -52,6 +58,20 @@ const bridge: DesktopApiBridge = {
     const listener = () => callback();
     ipcRenderer.on("inbox:changed", listener);
     return () => ipcRenderer.removeListener("inbox:changed", listener);
+  },
+  chatList: () => ipcRenderer.invoke("chat:list"),
+  chatMessages: (conversationId) => ipcRenderer.invoke("chat:messages", conversationId),
+  chatTranscribe: (audioBase64, mimeType, durationSeconds) =>
+    ipcRenderer.invoke("chat:transcribe", audioBase64, mimeType, durationSeconds),
+  chatSend: (conversationId, text, onEvent) => {
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const listener = (_event: unknown, id: unknown, chatEvent: unknown) => {
+      if (id === requestId) onEvent(chatEvent);
+    };
+    ipcRenderer.on("chat:event", listener);
+    return ipcRenderer
+      .invoke("chat:send", requestId, conversationId, text)
+      .finally(() => ipcRenderer.removeListener("chat:event", listener));
   },
 };
 

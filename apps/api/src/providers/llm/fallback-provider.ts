@@ -29,5 +29,19 @@ export function createFallbackProvider(primary: LlmProvider, fallback: LlmProvid
   return {
     createStructuredCompletion: (request) => withFallback((p) => p.createStructuredCompletion(request)),
     transcribeAudio: (request) => withFallback((p) => p.transcribeAudio(request)),
+    // A streamed reply can only switch providers before any text reached the
+    // user — switching mid-sentence would splice two different answers.
+    async streamChat(request, onTextDelta) {
+      let streamed = false;
+      try {
+        return await primary.streamChat(request, (delta) => {
+          streamed = true;
+          onTextDelta(delta);
+        });
+      } catch (err) {
+        if (streamed || !shouldFallBack(err)) throw err;
+        return fallback.streamChat(request, onTextDelta);
+      }
+    },
   };
 }

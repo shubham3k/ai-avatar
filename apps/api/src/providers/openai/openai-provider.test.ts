@@ -117,3 +117,81 @@ describe("openai provider", () => {
     expect(create).not.toHaveBeenCalled();
   });
 });
+
+describe("openai provider — streamChat", () => {
+  beforeEach(() => {
+    create.mockReset();
+  });
+
+  function streamOf(chunks: unknown[]) {
+    return {
+      async *[Symbol.asyncIterator]() {
+        for (const chunk of chunks) yield chunk;
+      },
+    };
+  }
+
+  it("streams text deltas and reassembles tool calls sent in fragments", async () => {
+    create.mockResolvedValue(
+      streamOf([
+        { choices: [{ delta: { content: "Let me " } }] },
+        { choices: [{ delta: { content: "check." } }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", function: { name: "get_calendar", arguments: '{"da' } }] } }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, function: { name: "_events", arguments: 'ys":2}' } }] } }] },
+        { choices: [], usage: { prompt_tokens: 500, completion_tokens: 20, prompt_tokens_details: { cached_tokens: 400 } } },
+      ]),
+    );
+    const onUsage = vi.fn();
+    const deltas: string[] = [];
+    const { createOpenAiProvider } = await import("./openai-provider.js");
+
+    const result = await createOpenAiProvider({ apiKey: "sk-test", onUsage }).streamChat(
+      {
+        messages: [{ role: "user", content: "what's on tomorrow?" }],
+        tools: [{ name: "get_calendar_events", description: "d", parameters: { type: "object" } }],
+      },
+      (d) => deltas.push(d),
+    );
+
+    expect(deltas).toEqual(["Let me ", "check."]);
+    expect(result).toEqual({
+      content: "Let me check.",
+      toolCalls: [{ id: "call_1", name: "get_calendar_events", arguments: '{"days":2}' }],
+      provider: "openai",
+    });
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stream: true,
+        stream_options: { include_usage: true },
+        store: false,
+        reasoning_effort: "none",
+        tools: [expect.objectContaining({ type: "function" })],
+      }),
+    );
+    expect(onUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "chat", inputTokens: 500, cachedInputTokens: 400, outputTokens: 20 }),
+    );
+  });
+
+  it("sends assistant tool calls and tool results back in OpenAI's message format", async () => {
+    create.mockResolvedValue(streamOf([{ choices: [{ delta: { content: "ok" } }] }]));
+    const { createOpenAiProvider } = await import("./openai-provider.js");
+
+    await createOpenAiProvider({ apiKey: "sk-test" }).streamChat(
+      {
+        messages: [
+          { role: "assistant", content: "", toolCalls: [{ id: "c1", name: "list_reminders", arguments: "{}" }] },
+          { role: "tool", toolCallId: "c1", content: '{"reminders":[]}' },
+        ],
+        tools: [],
+      },
+      () => {},
+    );
+
+    expect(create.mock.calls[0]![0].messages).toEqual([
+      { role: "assistant", content: "", tool_calls: [{ id: "c1", type: "function", function: { name: "list_reminders", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c1", content: '{"reminders":[]}' },
+    ]);
+    expect(create.mock.calls[0]![0]).not.toHaveProperty("tools");
+  });
+});

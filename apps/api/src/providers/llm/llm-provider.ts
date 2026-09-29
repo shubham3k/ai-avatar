@@ -13,7 +13,7 @@ export const PROVIDER_LABELS: Record<LlmProviderName, string> = {
 };
 
 /** What a call was for — recorded with its usage so "usage this month" can be broken down. */
-export type LlmOperation = "reminder_parse" | "prioritization" | "transcription" | "other";
+export type LlmOperation = "reminder_parse" | "prioritization" | "transcription" | "chat" | "other";
 
 export interface StructuredCompletionRequest {
   instructions: string;
@@ -44,11 +44,48 @@ export interface TranscriptionRequest {
   operation?: LlmOperation;
 }
 
+/** A tool the model may call — JSON Schema parameters; arguments are Zod-validated before anything runs. */
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  /** Raw JSON text from the model — untrusted until validated. */
+  arguments: string;
+}
+
+export type ChatTurnMessage =
+  | { role: "system" | "user"; content: string }
+  | { role: "assistant"; content: string; toolCalls?: ToolCall[] }
+  | { role: "tool"; toolCallId: string; content: string };
+
+export interface ChatRequest {
+  messages: ChatTurnMessage[];
+  tools: ToolDefinition[];
+  maxOutputTokens?: number;
+  operation?: LlmOperation;
+}
+
+export interface ChatResult {
+  /** Text the model produced this turn (already streamed through onTextDelta). */
+  content: string;
+  /** Tools the model asked to call; empty when this is a final answer. */
+  toolCalls: ToolCall[];
+  /** Which provider answered — replies from the fallback are labelled for the user. */
+  provider: LlmProviderName;
+}
+
 export interface LlmProvider {
   /** Returns the raw JSON text produced by the model — not yet parsed/validated. */
   createStructuredCompletion(request: StructuredCompletionRequest): Promise<string>;
   /** Returns the raw transcribed text. */
   transcribeAudio(request: TranscriptionRequest): Promise<string>;
+  /** One model turn with tools, streaming text as it's generated (ADR-006 chat). */
+  streamChat(request: ChatRequest, onTextDelta: (delta: string) => void): Promise<ChatResult>;
 }
 
 /** One successful provider call, reported for usage tracking. Never contains content. */
