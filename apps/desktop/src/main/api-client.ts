@@ -70,10 +70,25 @@ export interface ApiClient {
   getConversationMessages(conversationId: string): Promise<unknown>;
   transcribe(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
   /** Sends a message and streams Zara's reply; resolves when the stream ends. Omit conversationId to start a new chat. */
-  sendChatMessage(
-    request: { conversationId?: string | undefined; text: string },
-    onEvent: (event: unknown) => void,
-  ): Promise<void>;
+  sendChatMessage(request: ChatSendRequest, onEvent: (event: unknown) => void): Promise<void>;
+  /** ADR-006 (M3): chat deletion, memory page, activity log. */
+  deleteConversation(conversationId: string): Promise<unknown>;
+  deleteAllConversations(): Promise<unknown>;
+  listMemory(): Promise<unknown>;
+  updateMemory(factId: string, content: string): Promise<unknown>;
+  deleteMemory(factId: string): Promise<unknown>;
+  deleteAllMemory(): Promise<unknown>;
+  listActivity(): Promise<unknown>;
+  undoActivity(entryId: string): Promise<unknown>;
+  clearActivity(): Promise<unknown>;
+}
+
+export interface ChatSendRequest {
+  conversationId?: string | undefined;
+  text: string;
+  /** Incognito (M3): nothing stored or learned — the client supplies the history. */
+  incognito?: boolean | undefined;
+  history?: { role: "user" | "assistant"; content: string }[] | undefined;
 }
 
 export interface FetchLike {
@@ -222,6 +237,36 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
       }
       if (!response.body) throw new ApiClientError("Chat reply had no body", response.status);
       await readSseStream(response.body, onEvent);
+    },
+    deleteConversation(conversationId) {
+      return request(`/chat/conversations/${encodeURIComponent(conversationId)}`, { method: "DELETE" });
+    },
+    deleteAllConversations() {
+      return request("/chat/conversations", { method: "DELETE" });
+    },
+    listMemory() {
+      return request("/memory/facts");
+    },
+    updateMemory(factId, content) {
+      return request(`/memory/facts/${encodeURIComponent(factId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ content }),
+      });
+    },
+    deleteMemory(factId) {
+      return request(`/memory/facts/${encodeURIComponent(factId)}`, { method: "DELETE" });
+    },
+    deleteAllMemory() {
+      return request("/memory/facts", { method: "DELETE" });
+    },
+    listActivity() {
+      return request("/activity?limit=100");
+    },
+    undoActivity(entryId) {
+      return request(`/activity/${encodeURIComponent(entryId)}/undo`, { method: "POST", body: "{}" });
+    },
+    clearActivity() {
+      return request("/activity", { method: "DELETE" });
     },
     async checkNow() {
       await request("/reminders/detect-signals", { method: "POST", body: "{}" });

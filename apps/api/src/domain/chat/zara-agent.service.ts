@@ -15,8 +15,10 @@ import {
 import { providerFailureMessage, type ProviderFailureCode } from "../llm-failure-messages.js";
 import { createDefaultLlmProvider } from "../llm-usage.service.js";
 import { createReminderParsingService, type ReminderParsingService } from "../reminder-parsing.service.js";
+import { createActivityService, type ActivityService } from "../activity/activity.service.js";
+import { createMemoryService, MEMORY_CONTEXT_LIMIT, type MemoryService } from "../memory/memory.service.js";
 import { buildZaraSystemPrompt } from "./zara-prompt.js";
-import { findTool, ZARA_TOOLS, type ToolContext } from "./zara-tools.js";
+import { findTool, MEMORY_WRITE_TOOLS, ZARA_TOOLS, type ToolContext } from "./zara-tools.js";
 
 /** Streamed to the desktop app as Server-Sent Events. */
 export type ChatEvent =
@@ -97,8 +99,12 @@ export function createZaraAgentService(dependencies?: {
   conversations?: ConversationsRepository;
   prisma?: PrismaClient;
   reminderParser?: ReminderParsingService;
+  memory?: MemoryService;
+  activity?: ActivityService;
 }) {
   const prisma = dependencies?.prisma ?? defaultPrisma;
+  const memory = dependencies?.memory ?? createMemoryService({ prisma });
+  const activity = dependencies?.activity ?? createActivityService({ prisma });
   const provider = dependencies?.provider ?? createDefaultLlmProvider();
   const conversations = dependencies?.conversations ?? createConversationsRepository(prisma);
   const reminderParser = dependencies?.reminderParser ?? createReminderParsingService({ provider });
@@ -107,15 +113,24 @@ export function createZaraAgentService(dependencies?: {
   return {
     async sendMessage(
       userId: string,
-      request: { conversationId?: string | undefined; text: string },
+      request: {
+        conversationId?: string | undefined;
+        text: string;
+        /** Incognito (M3): nothing is stored and nothing is learned; the client supplies the history. */
+        incognito?: boolean | undefined;
+        history?: { role: "user" | "assistant"; content: string }[] | undefined;
+      },
       emit: (event: ChatEvent) => void,
       now: Date = new Date(),
     ): Promise<void> {
       const text = request.text.trim();
+      const incognito = request.incognito === true;
 
-      let conversationId = request.conversationId;
-      let history: ChatMessage[] = [];
-      if (conversationId) {
+      let conversationId = incognito ? undefined : request.conversationId;
+      let history: { role: string; content: string }[] = [];
+      if (incognito) {
+        history = (request.history ?? []).slice(-HISTORY_LIMIT);
+      } else if (conversationId) {
         const existing = await conversations.find(userId, conversationId);
         if (!existing) throw notFoundError("Conversation not found.");
         history = await conversations.recentMessages(conversationId, HISTORY_LIMIT);
@@ -125,10 +140,11 @@ export function createZaraAgentService(dependencies?: {
         emit({ type: "conversation", id: created.id, title: created.title });
       }
 
-      await conversations.addMessage({ conversationId, role: "user", content: text });
+      if (conversationId) await conversations.addMessage({ conversationId, role: "user", content: text });
 
+      const facts = await memory.list(userId, MEMORY_CONTEXT_LIMIT);
       const messages: ChatTurnMessage[] = [
-        { role: "system", content: buildZaraSystemPrompt(now) },
+        { role: "system", content: buildZaraSystemPrompt(now, facts, { incognito }) },
         ...history.map((message): ChatTurnMessage =>
           message.role === "assistant"
             ? { role: "assistant", content: message.content }
@@ -136,21 +152,29 @@ export function createZaraAgentService(dependencies?: {
         ),
         { role: "user", content: text },
       ];
+
+      let answeredBy: LlmProviderName | null = null;
       const context: ToolContext = {
         prisma,
         userId,
         now,
         turnState: new Map(),
         parseReminder: (reminderText, at) => reminderParser.parse(reminderText, at),
+        memory,
+        incognito,
+        // Logged with whichever provider was answering when Zara acted.
+        recordActivity: (entry) => activity.record(userId, { ...entry, provider: answeredBy }),
       };
+      const tools = incognito
+        ? toolDefinitions.filter((tool) => !MEMORY_WRITE_TOOLS.has(tool.name))
+        : toolDefinitions;
 
       let reply = "";
-      let answeredBy: LlmProviderName | null = null;
       let finished = false;
       try {
         for (let step = 0; step < MAX_AGENT_STEPS && !finished; step += 1) {
           const result = await provider.streamChat(
-            { messages, tools: toolDefinitions, maxOutputTokens: 800, operation: "chat" },
+            { messages, tools, maxOutputTokens: 800, operation: "chat" },
             (delta) => {
               reply += delta;
               emit({ type: "delta", text: delta });
@@ -185,6 +209,20 @@ export function createZaraAgentService(dependencies?: {
         emit({ type: "delta", text: addition });
       }
 
+      if (!conversationId) {
+        // Incognito: nothing is stored — hand back an unsaved message.
+        emit({
+          type: "done",
+          message: {
+            id: `incognito-${now.getTime()}`,
+            role: "assistant",
+            content: reply.trim(),
+            provider: answeredBy,
+            createdAt: new Date().toISOString(),
+          },
+        });
+        return;
+      }
       const saved = await conversations.addMessage({
         conversationId,
         role: "assistant",
@@ -192,6 +230,16 @@ export function createZaraAgentService(dependencies?: {
         provider: answeredBy,
       });
       emit({ type: "done", message: toChatMessageDto(saved) });
+    },
+
+    async deleteConversation(userId: string, conversationId: string): Promise<void> {
+      const existing = await conversations.find(userId, conversationId);
+      if (!existing) throw notFoundError("Conversation not found.");
+      await prisma.conversation.delete({ where: { id: conversationId } });
+    },
+
+    async deleteAllConversations(userId: string): Promise<number> {
+      return (await prisma.conversation.deleteMany({ where: { userId } })).count;
     },
 
     async listConversations(userId: string) {

@@ -58,7 +58,19 @@ export function ChatPanel({ chat, onClose, autoHideSeconds }: ChatPanelProps) {
     >
       <div className="chat-header">
         <img className="chat-avatar" src="./character.svg" alt="" aria-hidden="true" />
-        <div className="chat-title">Zara</div>
+        <div className="chat-title">
+          Zara{chat.incognito && <span className="chat-incognito-badge">Incognito</span>}
+        </div>
+        <button
+          type="button"
+          className={`chat-icon-button${chat.incognito ? " chat-icon-active" : ""}`}
+          aria-label="Incognito chat"
+          aria-pressed={chat.incognito}
+          title="Incognito chat — not saved, nothing learned"
+          onClick={() => (chat.incognito ? chat.newChat() : chat.startIncognito())}
+        >
+          🕶
+        </button>
         <button
           type="button"
           className="chat-icon-button"
@@ -82,24 +94,41 @@ export function ChatPanel({ chat, onClose, autoHideSeconds }: ChatPanelProps) {
             <div className="chat-empty">No past chats yet.</div>
           ) : (
             chat.conversations.map((conversation) => (
-              <button
+              <div
                 key={conversation.id}
-                type="button"
-                className={`chat-history-item${conversation.id === chat.conversationId ? " chat-history-current" : ""}`}
-                onClick={() => void chat.openConversation(conversation.id)}
+                className={`chat-history-row${conversation.id === chat.conversationId ? " chat-history-current" : ""}`}
               >
-                <span className="chat-history-title">{conversation.title}</span>
-                <span className="chat-history-time">{formatRelativeTime(new Date(conversation.updatedAt).getTime())}</span>
-              </button>
+                <button
+                  type="button"
+                  className="chat-history-item"
+                  onClick={() => void chat.openConversation(conversation.id)}
+                >
+                  <span className="chat-history-title">{conversation.title}</span>
+                  <span className="chat-history-time">{formatRelativeTime(new Date(conversation.updatedAt).getTime())}</span>
+                </button>
+                <button
+                  type="button"
+                  className="chat-icon-button chat-history-delete"
+                  aria-label={`Delete chat "${conversation.title}"`}
+                  title="Delete this chat"
+                  onClick={() => void chat.deleteConversation(conversation.id)}
+                >
+                  🗑
+                </button>
+              </div>
             ))
           )}
         </div>
       ) : (
         <>
+          {chat.incognito && (
+            <div className="chat-incognito-note">Incognito — this chat isn't saved and I won't remember anything from it.</div>
+          )}
           <div className="chat-messages" ref={scrollRef} data-testid="chat-messages" aria-live="polite">
             {chat.messages.length === 0 && !chat.recording && (
               <div className="chat-empty">
-                Hi, I'm Zara. Ask about your day, your email, or say "remind me in 10 minutes to stretch".
+                Hi, I'm Zara. Ask about your day, your email, or say "remind me in 10 minutes to stretch". Tell me
+                things worth remembering, like "Rahul is my manager".
               </div>
             )}
             {chat.messages.map((message) => (

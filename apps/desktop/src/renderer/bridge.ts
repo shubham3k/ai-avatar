@@ -25,7 +25,22 @@ interface DesktopApiBridge {
   chatList?(): Promise<unknown>;
   chatMessages?(conversationId: string): Promise<unknown>;
   chatTranscribe?(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
-  chatSend?(conversationId: string | null, text: string, onEvent: (event: unknown) => void): Promise<unknown>;
+  chatSend?(
+    conversationId: string | null,
+    text: string,
+    onEvent: (event: unknown) => void,
+    options?: { incognito?: boolean; history?: { role: "user" | "assistant"; content: string }[] },
+  ): Promise<unknown>;
+  /** ADR-006 (M3): each resolves `{ ok, value | message }`. Optional so older test doubles still type-check. */
+  chatDelete?(conversationId: string): Promise<unknown>;
+  chatDeleteAll?(): Promise<unknown>;
+  memoryList?(): Promise<unknown>;
+  memoryUpdate?(factId: string, content: string): Promise<unknown>;
+  memoryDelete?(factId: string): Promise<unknown>;
+  memoryDeleteAll?(): Promise<unknown>;
+  activityList?(): Promise<unknown>;
+  activityUndo?(entryId: string): Promise<unknown>;
+  activityClear?(): Promise<unknown>;
 }
 
 declare global {

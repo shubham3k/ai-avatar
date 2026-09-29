@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { ActivitySettings } from "./ActivitySettings";
+import { MemorySettings } from "./MemorySettings";
 import {
   getChatAutoHideSeconds,
   MAX_CHAT_AUTO_HIDE_SECONDS,
@@ -93,6 +95,7 @@ export function Settings({ onClose }: SettingsProps) {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [autoHideSeconds, setAutoHideSeconds] = useState(getChatAutoHideSeconds);
+  const [tab, setTab] = useState<"general" | "memory" | "activity">("general");
   const [googleClientIdInput, setGoogleClientIdInput] = useState("");
   const [googleClientSecretInput, setGoogleClientSecretInput] = useState("");
   const [saving, setSaving] = useState(false);
@@ -211,7 +214,33 @@ export function Settings({ onClose }: SettingsProps) {
           getting interventions.
         </p>
       )}
+      {onClose && (
+        <div className="settings-tabs" role="tablist">
+          {(
+            [
+              ["general", "General"],
+              ["memory", "Memory"],
+              ["activity", "Activity"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              className={`settings-tab${tab === id ? " settings-tab-active" : ""}`}
+              onClick={() => setTab(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {tab === "memory" && <MemorySettings />}
+      {tab === "activity" && <ActivitySettings />}
 
+      {tab === "general" && (
+      <>
       {status?.startupError && (
         <div className="card-error" role="alert">
           Local server failed to start: {status.startupError}
@@ -428,6 +457,8 @@ export function Settings({ onClose }: SettingsProps) {
           </>
         )}
       </div>
+      </>
+      )}
 
       {onClose && (
         <button type="button" className="button button-snooze settings-close" onClick={onClose}>

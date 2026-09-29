@@ -9,12 +9,41 @@ export interface ShellLike {
 /** What chat IPC calls resolve with — a curated message on failure, never a raw error. */
 export type ChatActionResult<T> = { ok: true; value: T } | { ok: false; message: string };
 
-/** The API's own curated message (400 input problems, 404, 502 provider problems), else the fallback. */
+/** The API's own curated message (400 input problems, 404, 409 e.g. "already undone", 502 provider problems), else the fallback. */
 export function userFacingApiMessage(err: unknown, fallback: string): string {
-  if (err instanceof ApiClientError && err.apiMessage && [400, 404, 502].includes(err.status)) {
+  if (err instanceof ApiClientError && err.apiMessage && [400, 404, 409, 502].includes(err.status)) {
     return err.apiMessage;
   }
   return fallback;
+}
+
+/** Runs an API call and settles it into a ChatActionResult — never rejects. */
+export async function settle<T>(call: () => Promise<T>, fallback: string): Promise<ChatActionResult<T>> {
+  try {
+    return { ok: true, value: await call() };
+  } catch (err) {
+    return { ok: false, message: userFacingApiMessage(err, fallback) };
+  }
+}
+
+function requireId(value: unknown, what: string): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 100) throw new Error(`Invalid ${what}`);
+  return value;
+}
+
+/** Incognito history from the renderer — validated and capped before it's forwarded. */
+export function parseChatHistory(value: unknown): { role: "user" | "assistant"; content: string }[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value
+    .filter(
+      (item): item is { role: "user" | "assistant"; content: string } =>
+        !!item &&
+        typeof item === "object" &&
+        ((item as { role?: unknown }).role === "user" || (item as { role?: unknown }).role === "assistant") &&
+        typeof (item as { content?: unknown }).content === "string",
+    )
+    .slice(-20)
+    .map((item) => ({ role: item.role, content: item.content.slice(0, 4000) }));
 }
 
 /** What the free-text/voice reminder IPC calls resolve with. */
@@ -183,6 +212,28 @@ export function registerIpc(options: {
 
   ipcMain.handle("usage:summary", async () => api.usageSummary());
 
+  // ADR-006 (M3): chat deletion, memory page, activity log.
+  ipcMain.handle("chat:delete", async (_event, id: unknown) =>
+    settle(() => api.deleteConversation(requireId(id, "conversation id")), "Couldn't delete that chat."),
+  );
+  ipcMain.handle("chat:delete-all", async () => settle(() => api.deleteAllConversations(), "Couldn't delete your chats."));
+  ipcMain.handle("memory:list", async () => settle(() => api.listMemory(), "Couldn't load your memory."));
+  ipcMain.handle("memory:update", async (_event, id: unknown, content: unknown) => {
+    if (typeof content !== "string" || content.trim().length === 0) {
+      return { ok: false, message: "A memory can't be empty." } satisfies ChatActionResult<never>;
+    }
+    return settle(() => api.updateMemory(requireId(id, "memory id"), content.trim()), "Couldn't update that memory.");
+  });
+  ipcMain.handle("memory:delete", async (_event, id: unknown) =>
+    settle(() => api.deleteMemory(requireId(id, "memory id")), "Couldn't delete that memory."),
+  );
+  ipcMain.handle("memory:delete-all", async () => settle(() => api.deleteAllMemory(), "Couldn't clear your memory."));
+  ipcMain.handle("activity:list", async () => settle(() => api.listActivity(), "Couldn't load the activity log."));
+  ipcMain.handle("activity:undo", async (_event, id: unknown) =>
+    settle(() => api.undoActivity(requireId(id, "activity id")), "Couldn't undo that."),
+  );
+  ipcMain.handle("activity:clear", async () => settle(() => api.clearActivity(), "Couldn't clear the activity log."));
+
   // ADR-006 (M2): Zara chat.
   ipcMain.handle("chat:list", async () => api.listConversations());
 
@@ -217,15 +268,28 @@ export function registerIpc(options: {
   // tagged with the renderer's requestId; resolves once the reply is complete.
   ipcMain.handle(
     "chat:send",
-    async (event, requestId: unknown, conversationId: unknown, text: unknown): Promise<ChatActionResult<null>> => {
+    async (
+      event,
+      requestId: unknown,
+      conversationId: unknown,
+      text: unknown,
+      options: unknown,
+    ): Promise<ChatActionResult<null>> => {
       if (typeof requestId !== "string" || requestId.length === 0) throw new Error("Invalid request id");
       if (typeof text !== "string" || text.trim().length === 0) return { ok: false, message: "Type a message first." };
       if (conversationId !== undefined && conversationId !== null && typeof conversationId !== "string") {
         throw new Error("Invalid conversation id");
       }
+      const incognito = !!options && typeof options === "object" && (options as { incognito?: unknown }).incognito === true;
       try {
         await api.sendChatMessage(
-          { conversationId: typeof conversationId === "string" ? conversationId : undefined, text: text.trim() },
+          {
+            conversationId: !incognito && typeof conversationId === "string" ? conversationId : undefined,
+            text: text.trim(),
+            ...(incognito
+              ? { incognito: true, history: parseChatHistory((options as { history?: unknown }).history) ?? [] }
+              : {}),
+          },
           (chatEvent) => {
             if (!event.sender.isDestroyed()) event.sender.send("chat:event", requestId, chatEvent);
           },

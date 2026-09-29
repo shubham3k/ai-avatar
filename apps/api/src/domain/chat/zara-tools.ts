@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { PrismaClient } from "@prisma/client";
 import type { ToolDefinition } from "../../providers/llm/llm-provider.js";
+import type { RecordActivityInput } from "../activity/activity.service.js";
+import { MEMORY_CATEGORIES, MEMORY_FACT_MAX_LENGTH, type MemoryService } from "../memory/memory.service.js";
 import type { ReminderParseOutcome } from "../reminder-parsing.service.js";
 import { REMINDER_TEXT_MAX_LENGTH } from "../reminders.constants.js";
 
@@ -26,6 +28,12 @@ export interface ToolContext {
   turnState: Map<string, unknown>;
   /** Natural-language reminder → times (reminder-parsing.service.ts). Injected so tests don't call a real model. */
   parseReminder: (text: string, now: Date) => Promise<ReminderParseOutcome>;
+  /** Long-term memory (M3). */
+  memory: MemoryService;
+  /** Logs an action to the activity log (M3) — the agent attaches which provider was answering. */
+  recordActivity: (entry: RecordActivityInput) => Promise<void>;
+  /** Incognito chat (M3): nothing is learned — memory-writing tools refuse. */
+  incognito: boolean;
 }
 
 export interface ZaraTool<Schema extends z.ZodTypeAny = z.ZodTypeAny> {
@@ -242,7 +250,7 @@ const createReminder = defineTool({
     },
   },
   schema: z.object({ request: z.string().trim().min(1).max(REMINDER_TEXT_MAX_LENGTH) }),
-  async run(args, { prisma, userId, now, turnState, parseReminder }) {
+  async run(args, { prisma, userId, now, turnState, parseReminder, recordActivity }) {
     // Guard against a model repeating the same call within one message
     // (seen in live testing): hand back the reminder already created.
     const dedupeKey = `create_reminder:${args.request.toLowerCase()}`;
@@ -265,6 +273,11 @@ const createReminder = defineTool({
       dueAt: formatLocalDateTime(parsed.dueAt),
     };
     turnState.set(dedupeKey, created);
+    await recordActivity({
+      kind: "reminder_created",
+      summary: `Set a reminder: "${reminder.text}" at ${created.alertAt}`,
+      undo: { reminderId: reminder.id },
+    });
     return { created };
   },
 });
@@ -283,11 +296,151 @@ const deleteReminder = defineTool({
     },
   },
   schema: z.object({ reminderId: z.string().min(1) }),
-  async run(args, { prisma, userId }) {
+  async run(args, { prisma, userId, recordActivity }) {
     const existing = await prisma.reminder.findFirst({ where: { id: args.reminderId, userId } });
     if (!existing) return { error: "No reminder with that id." };
     await prisma.reminder.delete({ where: { id: existing.id } });
+    await recordActivity({
+      kind: "reminder_deleted",
+      summary: `Deleted the reminder "${existing.text}"`,
+      undo: {
+        text: existing.text,
+        dueAt: existing.dueAt.toISOString(),
+        remindAt: existing.remindAt?.toISOString() ?? null,
+      },
+    });
     return { deleted: { text: existing.text } };
+  },
+});
+
+const INCOGNITO_REFUSAL = { error: "This is an incognito chat — nothing is remembered. Tell the user that." };
+
+const rememberFact = defineTool({
+  tier: "local_write",
+  status: "Saving to memory…",
+  definition: {
+    name: "remember_fact",
+    description:
+      "Save a lasting fact about the user, people in their life, or their preferences (e.g. 'Rahul Sharma is the user's manager', 'Prefers meetings after 10am'). Not for temporary plans, questions, or sensitive details (passwords, codes, card/ID numbers — those are refused). Write it as a short third-person statement.",
+    parameters: {
+      type: "object",
+      properties: {
+        fact: { type: "string", description: "Short statement, e.g. 'Priya is the user's sister'." },
+        category: { type: "string", enum: [...MEMORY_CATEGORIES] },
+      },
+      required: ["fact", "category"],
+      additionalProperties: false,
+    },
+  },
+  schema: z.object({
+    fact: z.string().trim().min(1).max(MEMORY_FACT_MAX_LENGTH),
+    category: z.enum(MEMORY_CATEGORIES),
+  }),
+  async run(args, { userId, memory, recordActivity, incognito }) {
+    if (incognito) return INCOGNITO_REFUSAL;
+    try {
+      const { fact, created } = await memory.save(userId, args.fact, args.category);
+      if (!created) return { alreadyKnown: fact.content };
+      await recordActivity({ kind: "memory_saved", summary: `Remembered: "${fact.content}"`, undo: { factId: fact.id } });
+      return { saved: fact.content };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Couldn't save that." };
+    }
+  },
+});
+
+const updateFact = defineTool({
+  tier: "local_write",
+  status: "Updating memory…",
+  definition: {
+    name: "update_fact",
+    description: "Correct a saved memory when the user says it's wrong or changed (use the id shown in your memory list).",
+    parameters: {
+      type: "object",
+      properties: { factId: { type: "string" }, fact: { type: "string", description: "The corrected statement." } },
+      required: ["factId", "fact"],
+      additionalProperties: false,
+    },
+  },
+  schema: z.object({ factId: z.string().min(1), fact: z.string().trim().min(1).max(MEMORY_FACT_MAX_LENGTH) }),
+  async run(args, { userId, memory, recordActivity, incognito }) {
+    if (incognito) return INCOGNITO_REFUSAL;
+    try {
+      const { fact, previousContent } = await memory.update(userId, args.factId, args.fact);
+      await recordActivity({
+        kind: "memory_updated",
+        summary: `Updated a memory: "${previousContent}" → "${fact.content}"`,
+        undo: { factId: fact.id, previousContent },
+      });
+      return { updated: fact.content };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Couldn't update that." };
+    }
+  },
+});
+
+const forgetFact = defineTool({
+  tier: "local_write",
+  status: "Forgetting that…",
+  definition: {
+    name: "forget_fact",
+    description: "Delete a saved memory when the user asks you to forget it or says it's wrong (use the id from your memory list).",
+    parameters: {
+      type: "object",
+      properties: { factId: { type: "string" } },
+      required: ["factId"],
+      additionalProperties: false,
+    },
+  },
+  schema: z.object({ factId: z.string().min(1) }),
+  async run(args, { userId, memory, recordActivity, incognito }) {
+    if (incognito) return INCOGNITO_REFUSAL;
+    try {
+      const fact = await memory.delete(userId, args.factId);
+      await recordActivity({
+        kind: "memory_deleted",
+        summary: `Forgot: "${fact.content}"`,
+        undo: { content: fact.content, category: fact.category },
+      });
+      return { forgotten: fact.content };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Couldn't find that memory." };
+    }
+  },
+});
+
+const searchChats = defineTool({
+  tier: "read",
+  status: "Looking through past chats…",
+  definition: {
+    name: "search_chats",
+    description: "Search the user's past conversations with you by words (e.g. 'what did we discuss about the vendor?').",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Words to look for." },
+        limit: { type: "integer", minimum: 1, maximum: 10 },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  schema: z.object({ query: z.string().trim().min(1).max(200), limit: z.number().int().min(1).max(10).optional() }),
+  async run(args, { prisma, userId }) {
+    const matches = await prisma.chatMessage.findMany({
+      where: { conversation: { userId }, content: { contains: args.query } },
+      orderBy: { createdAt: "desc" },
+      take: args.limit ?? 5,
+      include: { conversation: { select: { title: true } } },
+    });
+    return {
+      matches: matches.map((message) => ({
+        chat: message.conversation.title,
+        when: formatLocalDateTime(message.createdAt),
+        from: message.role === "assistant" ? "Zara" : "user",
+        text: message.content.slice(0, 300),
+      })),
+    };
   },
 });
 
@@ -298,7 +451,14 @@ export const ZARA_TOOLS: readonly ZaraTool[] = [
   listReminders,
   createReminder,
   deleteReminder,
+  rememberFact,
+  updateFact,
+  forgetFact,
+  searchChats,
 ];
+
+/** Tools that write memory — not offered at all in incognito chats. */
+export const MEMORY_WRITE_TOOLS = new Set(["remember_fact", "update_fact", "forget_fact"]);
 
 export function findTool(name: string): ZaraTool | undefined {
   return ZARA_TOOLS.find((tool) => tool.definition.name === name);

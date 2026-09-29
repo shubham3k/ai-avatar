@@ -254,3 +254,33 @@ model ChatMessage {
 
   @@index([conversationId, createdAt])
 }
+
+// ADR-006 (M3): lasting facts Zara learned about the user ("Rahul is my
+// manager"). Local only; editable/deletable from Settings or by telling
+// Zara. Sensitive details (passwords, card/ID numbers…) are never stored.
+model MemoryFact {
+  id        String   @id @default(cuid())
+  userId    String
+  content   String
+  category  String // "about_you" | "people" | "preferences" | "other"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, updatedAt])
+}
+
+// ADR-006 (M3): everything Zara did, newest first in Settings. `undo` holds
+// what's needed to reverse the action (JSON), null when it can't be undone.
+model ActivityEntry {
+  id        String    @id @default(cuid())
+  userId    String
+  createdAt DateTime  @default(now())
+  kind      String // "reminder_created" | "reminder_deleted" | "memory_saved" | "memory_updated" | "memory_deleted"
+  summary   String
+  // Which provider was answering when Zara took the action ("openai" | "groq").
+  provider  String?
+  undo      String?
+  undoneAt  DateTime?
+
+  @@index([userId, createdAt])
+}

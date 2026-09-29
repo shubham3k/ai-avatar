@@ -7,6 +7,21 @@
 
 ---
 
+## Addendum: Zara M3 — memory, redaction, incognito, activity log (September 29, 2026)
+
+On branch `zara-agent`.
+
+- **Data:** `MemoryFact` (content, category about_you/people/preferences/other) and `ActivityEntry` (kind, summary, provider, `undo` JSON, `undoneAt`) — migration `zara_m3_memory_activity`.
+- **Redaction** (`domain/privacy/redaction.ts`): passwords/PINs/OTPs, Luhn-valid card numbers, Aadhaar (standalone 12 digits only), PAN, labelled bank-account and passport numbers → `[redacted]`. Enforced at the provider boundary by `providers/llm/redacting-provider.ts` (`withRedaction`, applied in `createLlmProvider` around primary + fallback), so chat, reminder parsing, and prioritization can't leak them; memory refuses to store them.
+- **Memory:** `domain/memory/memory.service.ts` (dedupe ignoring case, refuses sensitive, 300-char cap). Facts (most recent 60) go into Zara's system prompt with ids for tools. New tools: `remember_fact`, `update_fact`, `forget_fact`, `search_chats` (LIKE over past messages). Prompt v4 tells Zara when to save ("Noted: …") and to fix wrong facts.
+- **Activity log:** `domain/activity/activity.service.ts` — every reminder create/delete and memory save/update/delete is logged with the provider that was answering and a stored inverse; `undo` applies it deterministically (409 with a clear message if the target is already gone / already undone).
+- **Incognito:** request `{ incognito: true, history }` — nothing stored, no conversation id, memory-write tools not offered (and refuse if called), prompt says so; the client keeps and resends the history (validated/capped in IPC).
+- **API:** `GET/PATCH/DELETE /memory/facts[/:id]`, `GET /activity`, `POST /activity/:id/undo`, `DELETE /activity`, `DELETE /chat/conversations[/:id]`; routes share `routes/caller.ts`.
+- **Desktop:** Settings now has tabs General / Memory / Activity (`MemorySettings.tsx`, `ActivitySettings.tsx`; confirmations for forget-everything, delete-all-chats, clear-log); chat header 🕶 incognito toggle with badge + banner; 🗑 per chat in history.
+- **Live-tested with Groq:** remembered facts, recalled them in a new chat, corrected them, refused a PIN (masked before reaching the model), activity entries logged with provider.
+
+---
+
 ## Addendum: Zara M2 — chat with tools (September 29, 2026)
 
 On branch `zara-agent`. The 💬 dock button opens Zara's chat panel; 🎤 transcribes and sends into the same chat.

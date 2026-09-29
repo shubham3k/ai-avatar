@@ -425,6 +425,50 @@ describe("desktop overlay", () => {
       expect(chatMessages).toHaveBeenCalledWith("conv_old");
     });
 
+    it("incognito sends the running history with each message and never adopts a stored conversation", async () => {
+      const chatSend = chatSendPlaying([
+        { type: "conversation", id: "should-be-ignored", title: "x" },
+        { type: "done", message: { id: "incognito-1", role: "assistant", content: "Private reply", provider: "openai" } },
+      ]);
+      installBridge({ chatSend });
+      const input = await openChat();
+
+      fireEvent.click(screen.getByRole("button", { name: "Incognito chat" }));
+      expect(screen.getByText(/this chat isn't saved/)).toBeInTheDocument();
+      fireEvent.change(input, { target: { value: "first" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await screen.findByText("Private reply");
+      fireEvent.change(input, { target: { value: "second" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      await waitFor(() =>
+        expect(chatSend).toHaveBeenLastCalledWith(null, "second", expect.any(Function), {
+          incognito: true,
+          history: [
+            { role: "user", content: "first" },
+            { role: "assistant", content: "Private reply" },
+          ],
+        }),
+      );
+    });
+
+    it("deletes a chat from history", async () => {
+      const chatDelete = vi.fn().mockResolvedValue({ ok: true, value: { deleted: 1 } });
+      installBridge({
+        chatList: vi.fn().mockResolvedValue({
+          conversations: [{ id: "conv_old", title: "Plan my Monday", updatedAt: new Date().toISOString() }],
+        }),
+        chatDelete,
+      });
+      await openChat();
+
+      fireEvent.click(screen.getByRole("button", { name: "Chat history" }));
+      fireEvent.click(await screen.findByRole("button", { name: 'Delete chat "Plan my Monday"' }));
+
+      await waitFor(() => expect(chatDelete).toHaveBeenCalledWith("conv_old"));
+      expect(screen.queryByText("Plan my Monday")).toBeNull();
+    });
+
     it("closes with Escape or the chat button", async () => {
       installBridge();
       const input = await openChat();

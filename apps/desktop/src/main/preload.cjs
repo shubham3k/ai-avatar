@@ -31,16 +31,25 @@ const bridge = {
   chatMessages: (conversationId) => ipcRenderer.invoke("chat:messages", conversationId),
   chatTranscribe: (audioBase64, mimeType, durationSeconds) =>
     ipcRenderer.invoke("chat:transcribe", audioBase64, mimeType, durationSeconds),
-  chatSend: (conversationId, text, onEvent) => {
+  chatSend: (conversationId, text, onEvent, options) => {
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const listener = (_event, id, chatEvent) => {
       if (id === requestId) onEvent(chatEvent);
     };
     ipcRenderer.on("chat:event", listener);
     return ipcRenderer
-      .invoke("chat:send", requestId, conversationId, text)
+      .invoke("chat:send", requestId, conversationId, text, options)
       .finally(() => ipcRenderer.removeListener("chat:event", listener));
   },
+  chatDelete: (conversationId) => ipcRenderer.invoke("chat:delete", conversationId),
+  chatDeleteAll: () => ipcRenderer.invoke("chat:delete-all"),
+  memoryList: () => ipcRenderer.invoke("memory:list"),
+  memoryUpdate: (factId, content) => ipcRenderer.invoke("memory:update", factId, content),
+  memoryDelete: (factId) => ipcRenderer.invoke("memory:delete", factId),
+  memoryDeleteAll: () => ipcRenderer.invoke("memory:delete-all"),
+  activityList: () => ipcRenderer.invoke("activity:list"),
+  activityUndo: (entryId) => ipcRenderer.invoke("activity:undo", entryId),
+  activityClear: () => ipcRenderer.invoke("activity:clear"),
   onInboxChanged: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("inbox:changed", listener);

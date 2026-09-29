@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/lib/prisma.js";
 import { findTool, ZARA_TOOLS, type ToolContext } from "../src/domain/chat/zara-tools.js";
+import { createActivityService } from "../src/domain/activity/activity.service.js";
+import { createMemoryService } from "../src/domain/memory/memory.service.js";
 
 // Friday 25 Sep 2026, 15:40 IST — tools format in local time, so pin the zone.
 const originalTz = process.env.TZ;
@@ -8,6 +10,7 @@ const NOW = new Date("2026-09-25T10:10:00.000Z");
 let userId: string;
 let otherUserId: string;
 let turnState: Map<string, unknown>;
+let incognito = false;
 
 /** Stands in for reminder-parsing.service.ts (tested on its own) — no real model call. */
 const parseReminder = vi.fn(async (text: string) => {
@@ -33,11 +36,24 @@ async function cleanDb() {
   await prisma.calendarEvent.deleteMany();
   await prisma.intervention.deleteMany();
   await prisma.signal.deleteMany();
+  await prisma.memoryFact.deleteMany();
+  await prisma.activityEntry.deleteMany();
+  await prisma.chatMessage.deleteMany();
+  await prisma.conversation.deleteMany();
   await prisma.user.deleteMany({ where: { email: { in: ["tools@example.local", "other@example.local"] } } });
 }
 
 function ctx(): ToolContext {
-  return { prisma, userId, now: NOW, turnState, parseReminder };
+  return {
+    prisma,
+    userId,
+    now: NOW,
+    turnState,
+    parseReminder,
+    memory: createMemoryService({ prisma }),
+    recordActivity: (entry) => createActivityService({ prisma }).record(userId, entry),
+    incognito,
+  };
 }
 
 async function run(name: string, args: unknown) {
@@ -88,6 +104,7 @@ describe("Zara tools (ADR-006 M2)", () => {
   beforeEach(async () => {
     await cleanDb();
     turnState = new Map();
+    incognito = false;
     parseReminder.mockClear();
     userId = (await prisma.user.create({ data: { email: "tools@example.local", displayName: "T", timezone: "Asia/Kolkata" } })).id;
     otherUserId = (await prisma.user.create({ data: { email: "other@example.local", displayName: "O", timezone: "UTC" } })).id;
@@ -179,5 +196,73 @@ describe("Zara tools (ADR-006 M2)", () => {
     expect((await run("list_attention_items", {})).items).toEqual([
       { title: "Pay rent", detail: "Pay rent today", priority: "high" },
     ]);
+  });
+});
+
+describe("Zara memory + activity tools (ADR-006 M3)", () => {
+  beforeEach(async () => {
+    await cleanDb();
+    turnState = new Map();
+    incognito = false;
+    userId = (await prisma.user.create({ data: { email: "tools@example.local", displayName: "T", timezone: "UTC" } })).id;
+  });
+  afterAll(cleanDb);
+
+  it("remember_fact saves a fact once, logs it, and refuses sensitive details", async () => {
+    expect(await run("remember_fact", { fact: "Rahul is the user's manager", category: "people" })).toEqual({
+      saved: "Rahul is the user's manager",
+    });
+    expect(await run("remember_fact", { fact: "rahul is the user's manager", category: "people" })).toEqual({
+      alreadyKnown: "Rahul is the user's manager",
+    });
+    expect(await run("remember_fact", { fact: "User's bank PIN: 4821", category: "about_you" })).toMatchObject({
+      error: expect.stringMatching(/sensitive/),
+    });
+
+    expect(await prisma.memoryFact.count()).toBe(1);
+    const log = await prisma.activityEntry.findMany();
+    expect(log.map((e) => [e.kind, e.summary])).toEqual([["memory_saved", 'Remembered: "Rahul is the user\'s manager"']]);
+  });
+
+  it("update_fact and forget_fact change memory and log undoable entries", async () => {
+    await run("remember_fact", { fact: "Prefers meetings after 10am", category: "preferences" });
+    const fact = await prisma.memoryFact.findFirstOrThrow();
+
+    expect(await run("update_fact", { factId: fact.id, fact: "Prefers meetings after 11am" })).toEqual({
+      updated: "Prefers meetings after 11am",
+    });
+    expect(await run("forget_fact", { factId: fact.id })).toEqual({ forgotten: "Prefers meetings after 11am" });
+    expect(await run("forget_fact", { factId: fact.id })).toMatchObject({ error: expect.any(String) });
+
+    const kinds = (await prisma.activityEntry.findMany({ orderBy: { createdAt: "asc" } })).map((e) => e.kind);
+    expect(kinds).toEqual(["memory_saved", "memory_updated", "memory_deleted"]);
+  });
+
+  it("memory-writing tools refuse in incognito chats", async () => {
+    incognito = true;
+    expect(await run("remember_fact", { fact: "Likes tea", category: "preferences" })).toMatchObject({
+      error: expect.stringMatching(/incognito/),
+    });
+    expect(await prisma.memoryFact.count()).toBe(0);
+  });
+
+  it("creating and deleting reminders is logged with undo data", async () => {
+    await run("create_reminder", { request: "gym tomorrow" });
+    const reminder = await prisma.reminder.findFirstOrThrow();
+    await run("delete_reminder", { reminderId: reminder.id });
+
+    const log = await prisma.activityEntry.findMany({ orderBy: { createdAt: "asc" } });
+    expect(log.map((e) => e.kind)).toEqual(["reminder_created", "reminder_deleted"]);
+    expect(log.every((e) => e.undo !== null)).toBe(true);
+  });
+
+  it("search_chats finds words in the user's past conversations only", async () => {
+    const conversation = await prisma.conversation.create({ data: { userId, title: "Vendor pricing" } });
+    await prisma.chatMessage.create({
+      data: { conversationId: conversation.id, role: "assistant", content: "The vendor quoted 40k for the redesign." },
+    });
+
+    const result = await run("search_chats", { query: "vendor" });
+    expect(result.matches).toEqual([expect.objectContaining({ chat: "Vendor pricing", from: "Zara" })]);
   });
 });

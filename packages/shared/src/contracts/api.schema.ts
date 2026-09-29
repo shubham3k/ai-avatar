@@ -452,6 +452,12 @@ export const sendChatMessageRequestSchema = z.object({
   // Omit to start a new conversation (titled from the first message).
   conversationId: z.string().min(1).optional(),
   text: z.string().trim().min(1).max(4000),
+  // M3 incognito: nothing is stored or learned; the client sends the history instead.
+  incognito: z.boolean().optional(),
+  history: z
+    .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(4000) }))
+    .max(20)
+    .optional(),
 });
 export type SendChatMessageRequest = z.infer<typeof sendChatMessageRequestSchema>;
 
@@ -479,3 +485,28 @@ export const transcribeRequestSchema = z.object({
   durationSeconds: z.number().min(0).max(600).optional(),
 });
 export const transcribeResponseSchema = z.object({ text: z.string() });
+
+// ADR-006 (M3): memory, activity log, chat deletion.
+export const memoryCategorySchema = z.enum(["about_you", "people", "preferences", "other"]);
+export const memoryFactDtoSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  category: memoryCategorySchema,
+  updatedAt: z.string(),
+});
+export const memoryFactsResponseSchema = z.object({ facts: z.array(memoryFactDtoSchema) });
+export const updateMemoryFactRequestSchema = z.object({ content: z.string().trim().min(1).max(300) });
+
+export const activityEntryDtoSchema = z.object({
+  id: z.string(),
+  createdAt: z.string(),
+  kind: z.string(),
+  summary: z.string(),
+  provider: z.string().nullable(),
+  canUndo: z.boolean(),
+  undoneAt: z.string().nullable(),
+});
+export const activityResponseSchema = z.object({ entries: z.array(activityEntryDtoSchema) });
+export const activityQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(500).optional() });
+
+export const deletedCountResponseSchema = z.object({ deleted: z.number().int().min(0) });

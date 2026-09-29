@@ -3,6 +3,7 @@ import { createGroqProvider } from "../groq/groq-client.js";
 import { createOpenAiProvider } from "../openai/openai-provider.js";
 import { createFallbackProvider } from "./fallback-provider.js";
 import type { LlmProvider, LlmUsageListener } from "./llm-provider.js";
+import { withRedaction } from "./redacting-provider.js";
 
 export interface LlmKeys {
   openaiApiKey?: string | undefined;
@@ -22,9 +23,11 @@ export function createLlmProvider(options?: { keys?: LlmKeys; onUsage?: LlmUsage
   const usage = options?.onUsage ? { onUsage: options.onUsage } : {};
 
   const groq = groqApiKey ? createGroqProvider({ apiKey: groqApiKey, ...usage }) : null;
-  if (!openaiApiKey && groq) return groq;
+  if (!openaiApiKey && groq) return withRedaction(groq);
 
   // "" (not undefined) so an explicit "no OpenAI key" can't fall through to env.
   const openai = createOpenAiProvider({ apiKey: openaiApiKey ?? "", ...usage });
-  return createFallbackProvider(openai, groq);
+  // Redaction wraps everything, so neither the primary nor the fallback
+  // ever receives unmasked sensitive details.
+  return withRedaction(createFallbackProvider(openai, groq));
 }

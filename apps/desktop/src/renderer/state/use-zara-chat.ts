@@ -53,6 +53,10 @@ export interface ZaraChat {
   conversations: ConversationSummary[];
   send: (text: string) => Promise<void>;
   newChat: () => void;
+  /** M3: a fresh chat that isn't saved and teaches Zara nothing. */
+  incognito: boolean;
+  startIncognito: () => void;
+  deleteConversation: (id: string) => Promise<void>;
   showHistory: () => Promise<void>;
   showChat: () => void;
   openConversation: (id: string) => Promise<void>;
@@ -77,8 +81,16 @@ export function useZaraChat(): ZaraChat {
   const [transcribing, setTranscribing] = useState(false);
   const [view, setView] = useState<"chat" | "history">("chat");
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [incognito, setIncognito] = useState(false);
   const recorderRef = useRef<VoiceRecorder | null>(null);
   const conversationRef = useRef<string | null>(null);
+  const incognitoRef = useRef(false);
+  // Incognito chats aren't stored server-side, so the history travels with each message.
+  const messagesRef = useRef<ChatMessage[]>([]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     conversationRef.current = conversationId;
@@ -100,6 +112,9 @@ export function useZaraChat(): ZaraChat {
     setError(null);
     setStatus(null);
     setSending(true);
+    const history = messagesRef.current
+      .filter((m) => !m.streaming && m.content.trim() !== "")
+      .map((m) => ({ role: m.role, content: m.content }));
     setMessages((prev) => [
       ...prev.filter((m) => m.id !== STREAMING_ID),
       { id: `local-${Date.now()}`, role: "user", content: text },
@@ -109,6 +124,7 @@ export function useZaraChat(): ZaraChat {
     const onEvent = (raw: unknown) => {
       if (!isChatEvent(raw)) return;
       if (raw.type === "conversation") {
+        if (incognitoRef.current) return;
         conversationRef.current = raw.id;
         setConversationId(raw.id);
       } else if (raw.type === "status") {
@@ -126,7 +142,11 @@ export function useZaraChat(): ZaraChat {
     };
 
     try {
-      const result = readResult(await bridge.chatSend(conversationRef.current, text, onEvent));
+      const result = readResult(
+        incognitoRef.current
+          ? await bridge.chatSend(null, text, onEvent, { incognito: true, history: history.slice(-20) })
+          : await bridge.chatSend(conversationRef.current, text, onEvent),
+      );
       if (!result.ok) setError(result.message);
     } catch {
       setError("Zara couldn't be reached. Please try again.");
@@ -142,14 +162,32 @@ export function useZaraChat(): ZaraChat {
     }
   }, []);
 
-  const newChat = useCallback(() => {
+  const resetChat = useCallback((asIncognito: boolean) => {
     conversationRef.current = null;
+    incognitoRef.current = asIncognito;
+    setIncognito(asIncognito);
     setConversationId(null);
     setMessages([]);
     setError(null);
     setStatus(null);
     setView("chat");
   }, []);
+
+  const newChat = useCallback(() => resetChat(false), [resetChat]);
+  const startIncognito = useCallback(() => resetChat(true), [resetChat]);
+
+  const deleteConversation = useCallback(
+    async (id: string) => {
+      const result = readResult(await window.desktopAPI?.chatDelete?.(id).catch(() => null));
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (conversationRef.current === id) resetChat(false);
+    },
+    [resetChat],
+  );
 
   const showHistory = useCallback(async () => {
     setView("history");
@@ -162,6 +200,8 @@ export function useZaraChat(): ZaraChat {
 
   const openConversation = useCallback(async (id: string) => {
     setError(null);
+    incognitoRef.current = false;
+    setIncognito(false);
     const raw = await window.desktopAPI?.chatMessages?.(id).catch(() => null);
     const list = raw && typeof raw === "object" ? (raw as { messages?: unknown }).messages : null;
     conversationRef.current = id;
@@ -234,6 +274,9 @@ export function useZaraChat(): ZaraChat {
     conversations,
     send,
     newChat,
+    incognito,
+    startIncognito,
+    deleteConversation,
     showHistory,
     showChat,
     openConversation,
