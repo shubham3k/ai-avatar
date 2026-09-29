@@ -1,11 +1,11 @@
 # Current Status - Quick Reference
 
 **Last Updated**: September 29, 2026
-**🧠 Zara (ADR-006) in progress on branch `zara-agent`:** M0 ✅ M1 ✅ M2 ✅ (user tested chat in dev mode) M3 ✅ in source (memory + Settings Memory/Activity tabs, redaction at the provider boundary, incognito, chat deletion, activity log with undo — not yet user-tested). **Next: M4 voice** (Ctrl+Shift+Space hotkey, spoken replies via OpenAI TTS with Windows voice option, voice picker with preview, hands-free, interrupt, Hindi/Hinglish). Full detail: HANDOFF.md top section + newest addenda; design: `docs/decisions/ADR-006-zara-personal-agent.md`.
-**Git:** `main` = checkpoint `3a96d64` (everything up to Sept 28). `zara-agent` = M0 `d96f08a` → M1 `ca77fc2` → M2 `94e6181` → M3 `03b4efa`. Nothing pushed. Merge `zara-agent` → `main` when Zara is complete.
-**Running it:** dev mode — `pnpm --filter @ai-agent/shared build` → `pnpm --filter @ai-agent/api build` → `pnpm --filter @ai-agent/desktop electron:dev` (quit the installed app first; port 4000). The installed `.exe` (Sept 28, 15:17) predates M1–M3; rebuild only when the user asks.
+**🧠 Zara (ADR-006) in progress on branch `zara-agent`:** M0 ✅ M1 ✅ M2 ✅ (user tested chat in dev mode) M3 ✅ in source (not yet user-tested) M4 ✅ voice in source (Ctrl+Shift+Space hotkey — 1st press opens chat, 2nd talks; replies to spoken messages are spoken via OpenAI TTS `marin`, Windows voice as option/fallback; Settings → Voice tab with preview; click-to-talk or hands-free; interruption; Hindi/Hinglish — not yet user-tested, the real OpenAI voice needs the user's key). **Next: M5 proactive.** Full detail: HANDOFF.md top section + newest addenda; design: `docs/decisions/ADR-006-zara-personal-agent.md`.
+**Git:** `main` = checkpoint `3a96d64` (everything up to Sept 28). `zara-agent` = M0 `d96f08a` → M1 `ca77fc2` → M2 `94e6181` → M3 `03b4efa` → M4 voice (see `git log`). Nothing pushed. Merge `zara-agent` → `main` when Zara is complete.
+**Running it:** dev mode — `pnpm --filter @ai-agent/shared build` → `pnpm --filter @ai-agent/api build` → `pnpm --filter @ai-agent/desktop electron:dev` (quit the installed app first; port 4000). The installed `.exe` (Sept 28, 15:17) predates M1–M4; rebuild only when the user asks.
 **Keys:** OpenAI key in the app's Settings → General (encrypted, shared by dev and installed app); Groq optional backup. Real OpenAI chat not yet verified (no OpenAI key in `apps/api/.env`; agent live tests ran over Groq).
-**Tests at last run:** API 641/641, desktop 166/166, workspace typecheck + lint clean. Known flake: `tests/assistant-evaluate.api.test.ts` hook timeout under full-suite load — passes standalone.
+**Tests at last run:** API 649/649, desktop 208/208, workspace typecheck + lint clean. Known flake: `tests/assistant-evaluate.api.test.ts` hook timeout under full-suite load — passes standalone.
 
 ---
 

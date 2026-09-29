@@ -44,10 +44,17 @@ export interface DesktopApiBridge {
   activityList(): Promise<unknown>;
   activityUndo(entryId: string): Promise<unknown>;
   activityClear(): Promise<unknown>;
+  /** ADR-006 (M4): voice. chatSpeak resolves `{ ok, value: base64 MP3 | message }`. */
+  chatSpeak(text: string, voice: string): Promise<unknown>;
+  saveChatHotkey(accelerator: string): Promise<unknown>;
+  /** Fires when the global Zara shortcut is pressed; returns an unsubscribe function. */
+  onHotkey(callback: () => void): () => void;
 }
 
 export interface ChatSendOptions {
   incognito?: boolean;
+  /** M4: the user spoke this message. */
+  spoken?: boolean;
   history?: { role: "user" | "assistant"; content: string }[];
 }
 
@@ -102,6 +109,13 @@ const bridge: DesktopApiBridge = {
   activityList: () => ipcRenderer.invoke("activity:list"),
   activityUndo: (entryId) => ipcRenderer.invoke("activity:undo", entryId),
   activityClear: () => ipcRenderer.invoke("activity:clear"),
+  chatSpeak: (text, voice) => ipcRenderer.invoke("chat:speak", text, voice),
+  saveChatHotkey: (accelerator) => ipcRenderer.invoke("settings:save-hotkey", accelerator),
+  onHotkey: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("zara:hotkey", listener);
+    return () => ipcRenderer.removeListener("zara:hotkey", listener);
+  },
 };
 
 contextBridge.exposeInMainWorld("desktopAPI", bridge);

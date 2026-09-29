@@ -5,7 +5,8 @@ import {
 } from "../db/repositories/llm-usage.repository.js";
 import { prisma } from "../lib/prisma.js";
 import { createLlmProvider } from "../providers/llm/create-llm-provider.js";
-import type { LlmProvider, LlmUsageEvent } from "../providers/llm/llm-provider.js";
+import type { LlmProvider, LlmUsageEvent, SpeechProvider } from "../providers/llm/llm-provider.js";
+import { createOpenAiSpeechProvider } from "../providers/openai/openai-speech-provider.js";
 import { estimateCostUsd } from "../providers/llm/pricing.js";
 
 export interface ProviderUsage {
@@ -75,6 +76,16 @@ export type LlmUsageService = ReturnType<typeof createLlmUsageService>;
 export function createDefaultLlmProvider(): LlmProvider {
   const usageService = createLlmUsageService();
   return createLlmProvider({
+    onUsage: (event) => {
+      void usageService.record(event);
+    },
+  });
+}
+
+/** M4: Zara's voice (OpenAI TTS), with usage recorded like every other call. */
+export function createDefaultSpeechProvider(): SpeechProvider {
+  const usageService = createLlmUsageService();
+  return createOpenAiSpeechProvider({
     onUsage: (event) => {
       void usageService.record(event);
     },

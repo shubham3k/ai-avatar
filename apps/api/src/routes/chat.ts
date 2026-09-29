@@ -5,16 +5,20 @@ import {
   deletedCountResponseSchema,
   idParamsSchema,
   sendChatMessageRequestSchema,
+  speakRequestSchema,
+  speakResponseSchema,
   transcribeRequestSchema,
   transcribeResponseSchema,
 } from "@ai-agent/shared";
 import { createAudioTranscriptionService } from "../domain/audio-transcription.service.js";
+import { createSpeechService } from "../domain/speech/speech.service.js";
 import { createZaraAgentService, type ChatEvent } from "../domain/chat/zara-agent.service.js";
 import { upstreamError, validationError } from "../lib/errors.js";
 import { requireCaller } from "./caller.js";
 
 const agent = createZaraAgentService();
 const transcription = createAudioTranscriptionService();
+const speech = createSpeechService();
 
 /** ADR-006 (M2): Zara chat. Replies stream as Server-Sent Events — one JSON ChatEvent per `data:` line. */
 export const chatRoutes: FastifyPluginAsyncZod = async (app) => {
@@ -84,6 +88,22 @@ export const chatRoutes: FastifyPluginAsyncZod = async (app) => {
         throw validationError(outcome.message);
       }
       return { text: outcome.text };
+    },
+  );
+
+  // M4: one chunk of Zara's reply → MP3. A 400 when no OpenAI key is set
+  // tells the desktop to use a local Windows voice instead.
+  app.post(
+    "/speak",
+    { schema: { body: speakRequestSchema, response: { 200: speakResponseSchema } } },
+    async (request) => {
+      await requireCaller(request);
+      const outcome = await speech.speak(request.body.text, request.body.voice);
+      if (!outcome.ok) {
+        if (outcome.code === "not_configured") throw validationError(outcome.message);
+        throw upstreamError(outcome.message);
+      }
+      return { audioBase64: outcome.audio.toString("base64"), mimeType: "audio/mpeg" as const };
     },
   );
 };

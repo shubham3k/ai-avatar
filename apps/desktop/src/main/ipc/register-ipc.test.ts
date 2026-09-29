@@ -4,6 +4,7 @@ import {
   isOpenAiModelChoice,
   OPENAI_MODEL_CHOICES,
   parseChatHistory,
+  parseSpeakRequest,
   settle,
   toReminderCreateResult,
   userFacingApiMessage,
@@ -95,5 +96,18 @@ describe("toReminderCreateResult", () => {
         throw new Error("fetch failed");
       }),
     ).rejects.toThrow("fetch failed");
+  });
+});
+
+describe("parseSpeakRequest (M4)", () => {
+  it("accepts a trimmed chunk and a voice name", () => {
+    expect(parseSpeakRequest("  Hello there.  ", "marin")).toEqual({ text: "Hello there.", voice: "marin" });
+  });
+
+  it("rejects empty or over-long text and odd voice names", () => {
+    expect(parseSpeakRequest("   ", "marin")).toBeNull();
+    expect(parseSpeakRequest("a".repeat(1001), "marin")).toBeNull();
+    expect(parseSpeakRequest("hi", "../etc")).toBeNull();
+    expect(parseSpeakRequest(42, "marin")).toBeNull();
   });
 });

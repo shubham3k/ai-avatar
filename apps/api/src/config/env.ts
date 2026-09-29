@@ -32,6 +32,7 @@ const envSchema = z.object({
   OPENAI_API_KEY: optionalSetting,
   OPENAI_MODEL: optionalSetting,
   OPENAI_TRANSCRIBE_MODEL: optionalSetting,
+  OPENAI_TTS_MODEL: optionalSetting,
   GROQ_API_KEY: optionalSetting,
   GROQ_MODEL: optionalSetting,
   GROQ_TRANSCRIBE_MODEL: optionalSetting,

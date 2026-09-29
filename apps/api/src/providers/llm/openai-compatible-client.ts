@@ -83,7 +83,7 @@ function describeError(err: unknown, status: number | undefined): string {
 }
 
 /** Maps an SDK error into a safe, typed error — never leaks raw provider payloads. */
-function mapError(err: unknown, provider: LlmProviderName): LlmProviderError {
+export function mapError(err: unknown, provider: LlmProviderName): LlmProviderError {
   const label = PROVIDER_LABELS[provider];
   const status = extractStatus(err);
   const detail = describeError(err, status);
@@ -195,6 +195,7 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleConfig): 
         const response = await api.audio.transcriptions.create({
           model: config.transcribeModel,
           file: await toFile(request.audio, `recording.${extension}`, { type: mimeType }),
+          ...(request.prompt ? { prompt: request.prompt } : {}),
         });
         text = response.text;
         config.onUsage?.({

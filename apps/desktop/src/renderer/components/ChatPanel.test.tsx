@@ -20,6 +20,11 @@ function makeChat(overrides: Partial<ZaraChat> = {}): ZaraChat {
     showChat: vi.fn(),
     openConversation: vi.fn(async () => {}),
     toggleRecording: vi.fn(),
+    speaking: false,
+    stopSpeaking: vi.fn(),
+    handsFree: false,
+    stopListening: vi.fn(),
+    voiceNotice: null,
     busy: false,
     ...overrides,
   };
@@ -109,5 +114,42 @@ describe("ChatPanel", () => {
 
     fireEvent.click(screen.getByText("Plan my Monday"));
     expect(chat.openConversation).toHaveBeenCalledWith("c1");
+  });
+});
+
+describe("ChatPanel voice (ADR-006 M4)", () => {
+  it("typing interrupts Zara's speech", () => {
+    const stopSpeaking = vi.fn();
+    render(<ChatPanel chat={makeChat({ speaking: true, busy: true, stopSpeaking })} onClose={vi.fn()} autoHideSeconds={0} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Message Zara" }), { target: { value: "w" } });
+    expect(stopSpeaking).toHaveBeenCalledOnce();
+  });
+
+  it("shows a Stop button while she speaks, and lets you type while she talks", () => {
+    const stopSpeaking = vi.fn();
+    render(<ChatPanel chat={makeChat({ speaking: true, busy: true, stopSpeaking })} onClose={vi.fn()} autoHideSeconds={0} />);
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(stopSpeaking).toHaveBeenCalledOnce();
+    const input = screen.getByRole("textbox", { name: "Message Zara" });
+    fireEvent.change(input, { target: { value: "next question" } });
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+
+  it("shows hands-free listening and never auto-hides while it's on", () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    render(<ChatPanel chat={makeChat({ handsFree: true, busy: true })} onClose={onClose} autoHideSeconds={5} />);
+    expect(screen.getByText(/Listening hands-free/)).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(onClose).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("puts the cursor in the message box when the hotkey signal changes", () => {
+    const { rerender } = render(<ChatPanel chat={makeChat()} onClose={vi.fn()} autoHideSeconds={0} focusSignal={0} />);
+    const input = screen.getByRole("textbox", { name: "Message Zara" });
+    input.blur();
+    rerender(<ChatPanel chat={makeChat()} onClose={vi.fn()} autoHideSeconds={0} focusSignal={1} />);
+    expect(input).toHaveFocus();
   });
 });

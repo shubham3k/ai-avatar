@@ -8,6 +8,13 @@ export type TranscriptionOutcome =
   | { ok: true; text: string }
   | { ok: false; code: TranscriptionFailureCode; message: string };
 
+/**
+ * M4: the user may speak English, Hindi, or a mix of both. The hint helps
+ * the model with mixed-language speech; it never forces a language.
+ */
+export const TRANSCRIPTION_LANGUAGE_HINT =
+  "The speaker may use English, Hindi, or Hinglish (Hindi and English mixed in one sentence).";
+
 export const EMPTY_TRANSCRIPTION_MESSAGE = "Didn't catch anything — try recording again.";
 
 /**
@@ -27,6 +34,7 @@ export function createAudioTranscriptionService(dependencies?: { provider?: LlmP
           audio,
           mimeType,
           operation: "transcription",
+          prompt: TRANSCRIPTION_LANGUAGE_HINT,
           ...(durationSeconds !== undefined ? { durationSeconds } : {}),
         });
       } catch (err) {

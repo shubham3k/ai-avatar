@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
@@ -794,6 +794,65 @@ describe("desktop overlay", () => {
       expect(card).toHaveTextContent(/expired or was revoked/i);
       expect(screen.getByRole("button", { name: "Reconnect Google" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("global hotkey (ADR-006 M4)", () => {
+    function installHotkeyBridge(overrides: Partial<Bridge> = {}) {
+      let press: (() => void) | null = null;
+      const bridge = installBridge({
+        onHotkey: vi.fn((callback: () => void) => {
+          press = callback;
+          return () => {
+            press = null;
+          };
+        }),
+        ...overrides,
+      });
+      return { bridge, press: () => act(() => press?.()) };
+    }
+
+    it("first press opens Zara's chat with the cursor in the box", async () => {
+      const { press } = installHotkeyBridge();
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+      await waitFor(() => expect(screen.getByRole("button", { name: "Check now" })).toBeInTheDocument());
+      expect(screen.queryByTestId("chat-panel")).toBeNull();
+
+      press();
+
+      const input = await screen.findByRole("textbox", { name: "Message Zara" });
+      await waitFor(() => expect(input).toHaveFocus());
+    });
+
+    it("a second press while the chat is open starts talking", async () => {
+      const getUserMedia = vi.fn().mockRejectedValue(Object.assign(new Error("denied"), { name: "NotAllowedError" }));
+      Object.defineProperty(navigator, "mediaDevices", { value: { getUserMedia }, configurable: true });
+      const { press } = installHotkeyBridge({ chatTranscribe: vi.fn() });
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+      await waitFor(() => expect(screen.getByRole("button", { name: "Check now" })).toBeInTheDocument());
+
+      press();
+      await screen.findByTestId("chat-panel");
+      press();
+
+      await waitFor(() => expect(getUserMedia).toHaveBeenCalled());
+    });
+
+    it("is ignored on the get-started screen", async () => {
+      const { press } = installHotkeyBridge({
+        getSettings: vi.fn().mockResolvedValue({
+          groqKeyConfigured: false,
+          googleOAuthConfigured: false,
+          secureStorageAvailable: true,
+          startupError: null,
+        }),
+      });
+      render(<App />);
+      await screen.findByText("Get started");
+      press();
+      expect(screen.queryByTestId("chat-panel")).toBeNull();
     });
   });
 });

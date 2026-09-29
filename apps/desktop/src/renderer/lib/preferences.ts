@@ -28,3 +28,61 @@ export function setChatAutoHideSeconds(seconds: number): void {
     // Storage unavailable — the default keeps applying.
   }
 }
+
+/**
+ * ADR-006 M4: how Zara speaks and listens.
+ * - engine: OpenAI TTS (default), a local Windows voice (free), or off.
+ * - inputMode: click-to-talk (default) or hands-free (voice-activity detection).
+ */
+export type VoiceEngine = "openai" | "windows" | "off";
+export type VoiceInputMode = "click" | "handsfree";
+
+export interface VoicePreferences {
+  engine: VoiceEngine;
+  openaiVoice: string;
+  /** A Windows voice's name, or null for the system default. */
+  windowsVoice: string | null;
+  inputMode: VoiceInputMode;
+}
+
+const VOICE_KEY = "zara.voice";
+
+export const DEFAULT_VOICE_PREFERENCES: VoicePreferences = {
+  engine: "openai",
+  openaiVoice: "marin",
+  windowsVoice: null,
+  inputMode: "click",
+};
+
+function isEngine(value: unknown): value is VoiceEngine {
+  return value === "openai" || value === "windows" || value === "off";
+}
+
+export function getVoicePreferences(): VoicePreferences {
+  try {
+    const raw = window.localStorage.getItem(VOICE_KEY);
+    if (!raw) return { ...DEFAULT_VOICE_PREFERENCES };
+    const parsed = JSON.parse(raw) as Partial<Record<keyof VoicePreferences, unknown>>;
+    return {
+      engine: isEngine(parsed.engine) ? parsed.engine : DEFAULT_VOICE_PREFERENCES.engine,
+      openaiVoice:
+        typeof parsed.openaiVoice === "string" && /^[a-z]{2,20}$/.test(parsed.openaiVoice)
+          ? parsed.openaiVoice
+          : DEFAULT_VOICE_PREFERENCES.openaiVoice,
+      windowsVoice: typeof parsed.windowsVoice === "string" && parsed.windowsVoice ? parsed.windowsVoice : null,
+      inputMode: parsed.inputMode === "handsfree" ? "handsfree" : "click",
+    };
+  } catch {
+    return { ...DEFAULT_VOICE_PREFERENCES };
+  }
+}
+
+export function setVoicePreferences(patch: Partial<VoicePreferences>): VoicePreferences {
+  const next = { ...getVoicePreferences(), ...patch };
+  try {
+    window.localStorage.setItem(VOICE_KEY, JSON.stringify(next));
+  } catch {
+    // Storage unavailable — defaults keep applying.
+  }
+  return next;
+}

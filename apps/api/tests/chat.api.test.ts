@@ -5,6 +5,11 @@ import { prisma } from "../src/lib/prisma.js";
 
 const streamChat = vi.fn();
 const transcribeAudio = vi.fn();
+const synthesizeSpeech = vi.fn();
+
+vi.mock("../src/providers/openai/openai-speech-provider.js", () => ({
+  createOpenAiSpeechProvider: () => ({ synthesizeSpeech }),
+}));
 
 vi.mock("../src/providers/llm/create-llm-provider.js", () => ({
   createLlmProvider: () => ({ createStructuredCompletion: vi.fn(), transcribeAudio, streamChat }),
@@ -30,6 +35,7 @@ describe("chat API (ADR-006 M2)", () => {
     });
     streamChat.mockReset();
     transcribeAudio.mockReset();
+    synthesizeSpeech.mockReset();
     if (!app) {
       const { buildApp } = await import("../src/app.js");
       app = await buildApp();
@@ -98,5 +104,43 @@ describe("chat API (ADR-006 M2)", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ text: "what's on my calendar today" });
+  });
+
+  it("POST /chat/speak returns Zara's voice as base64 MP3 with her voice instructions (M4)", async () => {
+    synthesizeSpeech.mockResolvedValue(Buffer.from("mp3-bytes"));
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/chat/speak",
+      payload: { text: "Namaste! Aaj aapki teen meetings hain.", voice: "marin" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ audioBase64: Buffer.from("mp3-bytes").toString("base64"), mimeType: "audio/mpeg" });
+    expect(synthesizeSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({ voice: "marin", instructions: expect.stringContaining("Hinglish") }),
+    );
+  });
+
+  it("POST /chat/speak rejects unknown voices and over-long text", async () => {
+    const badVoice = await app.inject({ method: "POST", url: "/api/v1/chat/speak", payload: { text: "hi", voice: "robot" } });
+    const tooLong = await app.inject({
+      method: "POST",
+      url: "/api/v1/chat/speak",
+      payload: { text: "a".repeat(1001), voice: "marin" },
+    });
+    expect(badVoice.statusCode).toBe(400);
+    expect(tooLong.statusCode).toBe(400);
+    expect(synthesizeSpeech).not.toHaveBeenCalled();
+  });
+
+  it("POST /chat/speak explains a missing OpenAI key with a 400 (the desktop then uses a Windows voice)", async () => {
+    const { LlmProviderError } = await import("../src/providers/llm/llm-provider.js");
+    synthesizeSpeech.mockRejectedValue(new LlmProviderError("not_configured", "not configured", null, "openai"));
+
+    const res = await app.inject({ method: "POST", url: "/api/v1/chat/speak", payload: { text: "hi", voice: "marin" } });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.message).toMatch(/Add your OpenAI API key/);
   });
 });

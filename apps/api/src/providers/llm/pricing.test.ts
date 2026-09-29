@@ -34,6 +34,13 @@ describe("estimateCostUsd", () => {
     ).toBeCloseTo(0.006, 10);
   });
 
+  it("prices generated speech per estimated minute (M4)", () => {
+    expect(estimateCostUsd(event({ model: "gpt-4o-mini-tts", operation: "speech", audioSeconds: 60 }))).toBeCloseTo(
+      0.015,
+      10,
+    );
+  });
+
   it("returns null for unknown models and for Groq (counted, not costed)", () => {
     expect(estimateCostUsd(event({ model: "gpt-unknown", inputTokens: 1000 }))).toBeNull();
     expect(estimateCostUsd(event({ provider: "groq", model: "openai/gpt-oss-120b", inputTokens: 1000 }))).toBeNull();

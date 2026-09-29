@@ -46,6 +46,14 @@ export function parseChatHistory(value: unknown): { role: "user" | "assistant"; 
     .map((item) => ({ role: item.role, content: item.content.slice(0, 4000) }));
 }
 
+/** M4: a chunk of Zara's reply to speak — trimmed, non-empty, within the API's limit. */
+export function parseSpeakRequest(text: unknown, voice: unknown): { text: string; voice: string } | null {
+  if (typeof text !== "string" || typeof voice !== "string") return null;
+  const trimmed = text.trim();
+  if (trimmed.length === 0 || trimmed.length > 1000 || !/^[a-z]{2,20}$/.test(voice)) return null;
+  return { text: trimmed, voice };
+}
+
 /** What the free-text/voice reminder IPC calls resolve with. */
 export type ReminderCreateResult =
   | { ok: true; reminder: unknown }
@@ -119,6 +127,10 @@ export function registerIpc(options: {
   saveOpenAiModelAndRestart: (model: string) => void;
   /** Same restart-required rationale as the Groq key — see docs/SINGLE_PROCESS_DESKTOP.md. */
   saveGoogleCredentialsAndRestart: (clientId: string, clientSecret: string) => void;
+  /** M4: the Zara shortcut currently registered (null if another app holds it). */
+  getChatHotkey: () => string | null;
+  /** M4: validates, re-registers, and persists a new shortcut — takes effect immediately. */
+  changeChatHotkey: (accelerator: unknown) => { ok: true; accelerator: string } | { ok: false; message: string };
 }): void {
   const {
     ipcMain,
@@ -138,6 +150,8 @@ export function registerIpc(options: {
     saveOpenAiKeyAndRestart,
     saveOpenAiModelAndRestart,
     saveGoogleCredentialsAndRestart,
+    getChatHotkey,
+    changeChatHotkey,
   } = options;
 
   ipcMain.handle("inbox:get", async () => api.fetchInbox());
@@ -194,7 +208,10 @@ export function registerIpc(options: {
     startupError,
     googleAuthError: getGoogleAuthError(),
     lastCheckedAt: getLastCheckedAt(),
+    chatHotkey: getChatHotkey(),
   }));
+
+  ipcMain.handle("settings:save-hotkey", async (_event, accelerator: unknown) => changeChatHotkey(accelerator));
 
   ipcMain.handle("settings:save-openai-key", async (_event, key: unknown) => {
     if (typeof key !== "string" || key.trim().length === 0) {
@@ -264,6 +281,18 @@ export function registerIpc(options: {
     },
   );
 
+  // M4: one chunk of Zara's reply → MP3. On failure the renderer falls back
+  // to a local Windows voice and shows the message once.
+  ipcMain.handle("chat:speak", async (_event, text: unknown, voice: unknown) => {
+    const parsed = parseSpeakRequest(text, voice);
+    if (!parsed) return { ok: false, message: "Nothing to say." } satisfies ChatActionResult<never>;
+    return settle(async () => {
+      const result = (await api.speak(parsed.text, parsed.voice)) as { audioBase64?: unknown };
+      if (typeof result?.audioBase64 !== "string") throw new Error("No audio returned");
+      return result.audioBase64;
+    }, "Zara's OpenAI voice isn't available right now.");
+  });
+
   // Streams Zara's reply to the requesting window as "chat:event" messages
   // tagged with the renderer's requestId; resolves once the reply is complete.
   ipcMain.handle(
@@ -281,11 +310,13 @@ export function registerIpc(options: {
         throw new Error("Invalid conversation id");
       }
       const incognito = !!options && typeof options === "object" && (options as { incognito?: unknown }).incognito === true;
+      const spoken = !!options && typeof options === "object" && (options as { spoken?: unknown }).spoken === true;
       try {
         await api.sendChatMessage(
           {
             conversationId: !incognito && typeof conversationId === "string" ? conversationId : undefined,
             text: text.trim(),
+            ...(spoken ? { spoken: true } : {}),
             ...(incognito
               ? { incognito: true, history: parseChatHistory((options as { history?: unknown }).history) ?? [] }
               : {}),

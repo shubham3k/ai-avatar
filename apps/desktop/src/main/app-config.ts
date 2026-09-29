@@ -34,6 +34,8 @@ export interface UserConfig {
   openaiApiKey?: string | undefined;
   /** ADR-006: OpenAI chat model chosen in Settings (default gpt-6-luna when unset). */
   openaiModel?: string | undefined;
+  /** ADR-006 M4: global shortcut that opens Zara (default Ctrl+Shift+Space when unset). */
+  chatHotkey?: string | undefined;
 }
 
 /** Every persisted field — each stored encrypted (or base64 when no OS keychain exists). */
@@ -44,6 +46,7 @@ const CONFIG_FIELDS = [
   "googleClientSecret",
   "openaiApiKey",
   "openaiModel",
+  "chatHotkey",
 ] as const satisfies readonly (keyof UserConfig)[];
 
 export interface LoadedUserConfig extends UserConfig {

@@ -1,9 +1,9 @@
 # Project Handoff Document
 
 **Last Updated:** September 29, 2026
-**Phase Completed:** Phases 1–4.7 (foundation → Google OAuth/Gmail/Calendar → daily context → SQLite, single-process desktop, onboarding, secrets, auto-migrations, Windows packaging), the Sept 18–28 feature stretch (background sync, tray, reminders, dock UI), and **Zara milestones M0–M3** (see below).
+**Phase Completed:** Phases 1–4.7 (foundation → Google OAuth/Gmail/Calendar → daily context → SQLite, single-process desktop, onboarding, secrets, auto-migrations, Windows packaging), the Sept 18–28 feature stretch (background sync, tray, reminders, dock UI), and **Zara milestones M0–M4** (see below).
 
-**Current work — Zara, a local-first personal AI agent (design: `docs/decisions/ADR-006-zara-personal-agent.md`, read it first).** All Zara work is on git branch **`zara-agent`**, created from `main` after checkpoint `3a96d64`; merge back to `main` when the milestones are complete (user's instruction). Commits so far: M0 `d96f08a`, M1 `ca77fc2`, M2 `94e6181`, M3 `03b4efa`. Working tree clean at end of the Sept 29 session.
+**Current work — Zara, a local-first personal AI agent (design: `docs/decisions/ADR-006-zara-personal-agent.md`, read it first).** All Zara work is on git branch **`zara-agent`**, created from `main` after checkpoint `3a96d64`; merge back to `main` when the milestones are complete (user's instruction). Commits so far: M0 `d96f08a`, M1 `ca77fc2`, M2 `94e6181`, M3 `03b4efa`, M4 voice (the commit after docs `34c8e4e` — see `git log`). Working tree clean at end of the Sept 29 session.
 
 | Milestone | Status |
 | --- | --- |
@@ -11,14 +11,33 @@
 | M1 brain (OpenAI `gpt-6-luna` + Groq fallback, model picker, usage) | ✅ |
 | M2 chat with tools (streaming, history, voice into chat, auto-hide) | ✅ user tested the chat panel in dev mode |
 | M3 memory, redaction, incognito, activity log + undo | ✅ in source, not yet user-tested |
-| **M4 voice (hotkey Ctrl+Shift+Space, spoken replies, voice picker, hands-free, interrupt, Hindi/Hinglish)** | **next** |
-| M5 proactive · M6 recall · M7 approved actions · M8 MCP · M9 routines | planned (ADR-006) |
+| M4 voice (hotkey Ctrl+Shift+Space, spoken replies, voice picker, hands-free, interrupt, Hindi/Hinglish) | ✅ in source, not yet user-tested (the real OpenAI voice needs the user's key) |
+| **M5 proactive (briefings, pre-meeting summary, follow-ups, promises, held pop-ups, wrap-up)** | **next** |
+| M6 recall · M7 approved actions · M8 MCP · M9 routines | planned (ADR-006) |
 
-**How the user runs it right now:** dev mode, not the installer — `pnpm --filter @ai-agent/shared build`, `pnpm --filter @ai-agent/api build`, then `pnpm --filter @ai-agent/desktop electron:dev` (quit any installed copy first: both use port 4000). The last packaged `.exe` (Sept 28, 15:17) predates M1–M3; rebuild (`npm run package:win` in `apps/desktop`) **only when the user asks**.
+**How the user runs it right now:** dev mode, not the installer — `pnpm --filter @ai-agent/shared build`, `pnpm --filter @ai-agent/api build`, then `pnpm --filter @ai-agent/desktop electron:dev` (quit any installed copy first: both use port 4000). The last packaged `.exe` (Sept 28, 15:17) predates M1–M4; rebuild (`npm run package:win` in `apps/desktop`) **only when the user asks**.
 
 **Keys:** the OpenAI key goes in the app's **Settings → General → "AI provider (OpenAI)"** (encrypted in `%APPDATA%\@ai-agent\desktop\config.json`, shared by dev mode and the installed app). `apps/api/.env` has no OpenAI key (only Groq), so agent-side live tests run over Groq; a real OpenAI chat has **not** been verified yet. `.env.test` blanks all AI keys so tests never make billed calls.
 
 **Working rules with this user:** discuss before building new directions; never rebuild the `.exe` or commit unasked (commits on `zara-agent` per milestone are fine — the user approved that flow); after each milestone run typecheck + lint + all tests and a live check where possible.
+
+---
+
+## Addendum: Zara M4 — voice (September 29, 2026)
+
+On branch `zara-agent`. Plan confirmed by the user before building: default OpenAI voice **`marin`**; hotkey **first press opens the chat, second press starts talking** (third stops and sends).
+
+- **Global hotkey** (`apps/desktop/src/main/hotkey.ts`): `Ctrl+Shift+Space` by default, registered with Electron `globalShortcut`. `validateHotkey` needs Ctrl or Alt, refuses Windows-reserved combos (Ctrl+Space, Alt+Space, …) and returns canonical order; `createHotkeyManager.change` keeps the old shortcut if the new one is taken by another app. Saved as `chatHotkey` in `config.json` (IPC `settings:save-hotkey`, applied immediately — no restart). A press shows/focuses the window and sends `zara:hotkey`; `App.tsx` opens the chat (cursor in the box, speech stopped) or, if it's already open, toggles the mic. Ignored on the get-started / startup-error screens.
+- **Spoken replies:** only for messages the user spoke (`send(text, { spoken: true })` → `spoken: true` on `POST /chat/messages`). Prompt v5 adds spoken guidance near the end of the system prompt (short spoken sentences; no lists, URLs, or email addresses; same language + script; don't announce tool checks). The renderer cuts the streamed reply into sentences (`lib/speech-text.ts`, incl. the Devanagari danda) and `lib/speech-player.ts` prefetches each chunk and plays them in order, so she starts talking after the first sentence.
+- **OpenAI TTS:** `POST /api/v1/chat/speak` `{ text ≤1000 chars, voice ∈ OPENAI_TTS_VOICES }` → `{ audioBase64, mimeType: "audio/mpeg" }`. `providers/openai/openai-speech-provider.ts` (`gpt-4o-mini-tts`, `OPENAI_TTS_MODEL` override; text redacted first); voice instructions for natural Hindi/Hinglish pronunciation in `domain/speech/speech.service.ts`. Speech is a separate `SpeechProvider`, not part of `LlmProvider` — **no Groq fallback** (Groq's voices don't speak Hindi); the desktop falls back to a **Windows voice** and shows the reason once. Usage: operation `speech`, audio seconds estimated from the text (~15 chars/s), priced at $0.015/min.
+- **Windows voices** (`lib/speech-output.ts`): Chromium `speechSynthesis` (SAPI, offline). Devanagari chunks use an installed Hindi voice when one exists. **This PC has only English voices** (David, Zira, Mark) — for Hindi script add one in Windows Settings → Time & language → Speech → Add voices → Hindi.
+- **Settings → Voice tab** (`VoiceSettings.tsx`): shortcut capture box; Zara's voice OpenAI (default) / Windows / Off; OpenAI voice picker (marin default); Windows voice picker (also used as the fallback voice); ▶ Preview ("Hi, I'm Zara. Aaj aapka din kaisa chal raha hai?"); Click to talk (default) / Hands-free. Stored in renderer localStorage (`zara.voice`).
+- **Hands-free** (`lib/hands-free-listener.ts` + pure `lib/voice-activity.ts`): the mic stays open while the chat is open; RMS voice-activity detection with an adaptive noise floor; 1.2 s of silence ends a turn; a recording always runs so the first syllable isn't lost (restarted after 8 s of silence to keep clips short); echo cancellation on; 60 s with no speech turns it off with a note. Something said while Zara is still answering is sent right after.
+- **Interruption:** typing, clicking 🎤, the hotkey, sending anything, New chat / opening a chat, closing the panel, or (hands-free) talking over her — which needs louder, ≥0.4 s sustained speech while she's speaking, so her own voice leaking into the mic doesn't cut her off. The chat shows "Zara is speaking… [Stop]".
+- **Hindi/Hinglish:** transcription sends a language hint ("English, Hindi, or Hinglish"); the spoken prompt keeps Devanagari → Devanagari and Hinglish → Hinglish.
+- **Tests:** API 649/649, desktop 208/208, typecheck + lint clean. New tests cover the speech provider/service/route, pricing, spoken prompt, hotkey validation + manager, sentence chunker, speaker queue/interrupt/fallback, VAD with simulated levels, Settings → Voice, ChatPanel interrupt/hands-free, App hotkey, and the hook's voice flow.
+- **Live checks** (API on port 4100 against a **copy** of `dev.db`, Groq only): `/chat/speak` without an OpenAI key → 400 "Add your OpenAI API key in Settings to use Zara's OpenAI voice." (the desktop then uses a Windows voice); unknown voice → 400. Spoken chat over Groq: Hinglish question → Hinglish answer, Devanagari → Devanagari, 1–2 sentences. A Windows-voice WAV was transcribed correctly through Groq with the hint. Standalone Electron check: `Ctrl+Shift+Space` registers on this PC, changing to Alt+Shift+Z releases it, Ctrl+Space is refused.
+- **Not verified yet (needs the user):** the real OpenAI voice (key is in the user's Settings, not dev `.env`), the hotkey and hands-free inside the running app, and echo behaviour on speakers. Known: the Groq fallback model sometimes still says "Let me check…" before a tool call, which then gets read aloud.
 
 ---
 

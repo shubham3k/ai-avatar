@@ -34,6 +34,7 @@ describe("audio transcription service", () => {
       audio: buffer,
       mimeType: "audio/webm",
       operation: "transcription",
+      prompt: expect.stringContaining("Hinglish"),
       durationSeconds: 4.2,
     });
   });

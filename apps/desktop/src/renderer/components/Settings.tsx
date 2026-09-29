@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActivitySettings } from "./ActivitySettings";
 import { MemorySettings } from "./MemorySettings";
+import { VoiceSettings } from "./VoiceSettings";
 import {
   getChatAutoHideSeconds,
   MAX_CHAT_AUTO_HIDE_SECONDS,
@@ -95,7 +96,7 @@ export function Settings({ onClose }: SettingsProps) {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [autoHideSeconds, setAutoHideSeconds] = useState(getChatAutoHideSeconds);
-  const [tab, setTab] = useState<"general" | "memory" | "activity">("general");
+  const [tab, setTab] = useState<"general" | "voice" | "memory" | "activity">("general");
   const [googleClientIdInput, setGoogleClientIdInput] = useState("");
   const [googleClientSecretInput, setGoogleClientSecretInput] = useState("");
   const [saving, setSaving] = useState(false);
@@ -219,6 +220,7 @@ export function Settings({ onClose }: SettingsProps) {
           {(
             [
               ["general", "General"],
+              ["voice", "Voice"],
               ["memory", "Memory"],
               ["activity", "Activity"],
             ] as const
@@ -236,6 +238,7 @@ export function Settings({ onClose }: SettingsProps) {
           ))}
         </div>
       )}
+      {tab === "voice" && <VoiceSettings />}
       {tab === "memory" && <MemorySettings />}
       {tab === "activity" && <ActivitySettings />}
 

@@ -28,6 +28,8 @@ export default function App() {
   const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chat = useZaraChat();
   const [chatOpen, setChatOpen] = useState(false);
+  // M4: bumped by the global hotkey so the chat box gets the cursor.
+  const [chatFocusSignal, setChatFocusSignal] = useState(0);
 
   // A brief, self-clearing confirmation after an action succeeds — kept
   // independent of the interventions list state so it still shows even
@@ -163,7 +165,13 @@ export default function App() {
     [handleDone, handleSnooze, handleOpen],
   );
 
-  const closeChat = useCallback(() => setChatOpen(false), []);
+  const { stopListening, stopSpeaking } = chat;
+  // Closing the panel also closes the mic and silences Zara.
+  const closeChat = useCallback(() => {
+    setChatOpen(false);
+    stopListening();
+    stopSpeaking();
+  }, [stopListening, stopSpeaking]);
   const toggleMic = chat.toggleRecording;
   // Speaking to Zara opens her chat, so the transcript and reply are visible.
   const handleMic = useCallback(() => {
@@ -171,6 +179,29 @@ export default function App() {
     setChatOpen(true);
     toggleMic();
   }, [toggleMic]);
+
+  // M4: the global hotkey (Ctrl+Shift+Space by default). First press opens
+  // Zara's chat with the cursor in the box (and silences her); pressing it
+  // while the chat is open starts talking, and again stops and sends.
+  // Ignored on screens where chat can't run yet.
+  const chatAvailable = !startupError && !!setupStatus && setupStatus.aiKeyConfigured && setupStatus.googleConnected;
+  const hotkeyStateRef = useRef({ chatOpen, chatAvailable, handleMic, stopSpeaking });
+  hotkeyStateRef.current = { chatOpen, chatAvailable, handleMic, stopSpeaking };
+  useEffect(() => {
+    const unsubscribe = window.desktopAPI?.onHotkey?.(() => {
+      const state = hotkeyStateRef.current;
+      if (!state.chatAvailable) return;
+      if (state.chatOpen) {
+        state.handleMic();
+        return;
+      }
+      state.stopSpeaking();
+      setShowSettings(false);
+      setChatOpen(true);
+      setChatFocusSignal((n) => n + 1);
+    });
+    return () => unsubscribe?.();
+  }, []);
 
   // The persistent bottom-right control pill, rendered last on every screen,
   // with Zara's chat panel (ADR-006 M2) directly above it when open. "last
@@ -182,7 +213,12 @@ export default function App() {
   const renderDock = (fullControls: boolean) => (
     <>
       {fullControls && chatOpen && (
-        <ChatPanel chat={chat} onClose={closeChat} autoHideSeconds={getChatAutoHideSeconds()} />
+        <ChatPanel
+          chat={chat}
+          onClose={closeChat}
+          autoHideSeconds={getChatAutoHideSeconds()}
+          focusSignal={chatFocusSignal}
+        />
       )}
       <Dock
         onToggleSettings={() => setShowSettings((prev) => !prev)}
@@ -191,7 +227,7 @@ export default function App() {
         checking={checking}
         lastCheckedAt={fullControls ? (setupStatus?.lastCheckedAt ?? null) : null}
         onToggleMic={fullControls ? handleMic : undefined}
-        recording={chat.recording}
+        recording={chat.recording || chat.handsFree}
         micBusy={chat.transcribing}
         onToggleChat={
           fullControls

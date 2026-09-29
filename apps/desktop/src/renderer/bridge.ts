@@ -29,7 +29,7 @@ interface DesktopApiBridge {
     conversationId: string | null,
     text: string,
     onEvent: (event: unknown) => void,
-    options?: { incognito?: boolean; history?: { role: "user" | "assistant"; content: string }[] },
+    options?: { incognito?: boolean; spoken?: boolean; history?: { role: "user" | "assistant"; content: string }[] },
   ): Promise<unknown>;
   /** ADR-006 (M3): each resolves `{ ok, value | message }`. Optional so older test doubles still type-check. */
   chatDelete?(conversationId: string): Promise<unknown>;
@@ -41,6 +41,10 @@ interface DesktopApiBridge {
   activityList?(): Promise<unknown>;
   activityUndo?(entryId: string): Promise<unknown>;
   activityClear?(): Promise<unknown>;
+  /** ADR-006 (M4): voice. Optional so older test doubles still type-check. */
+  chatSpeak?(text: string, voice: string): Promise<unknown>;
+  saveChatHotkey?(accelerator: string): Promise<unknown>;
+  onHotkey?(callback: () => void): () => void;
 }
 
 declare global {

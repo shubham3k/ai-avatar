@@ -142,6 +142,17 @@ describe("Zara agent loop (ADR-006 M2)", () => {
     expect(await prisma.chatMessage.count({ where: { role: "assistant" } })).toBe(0);
   });
 
+  it("tells the model its reply will be read aloud when the user spoke (M4)", async () => {
+    const { provider, requests } = scriptedProvider([{ text: "Sure." }, { text: "Okay." }]);
+    const service = createZaraAgentService({ provider });
+
+    await service.sendMessage(userId, { text: "kal ka plan kya hai", spoken: true }, () => {});
+    await service.sendMessage(userId, { text: "typed message" }, () => {});
+
+    expect(requests[0]!.messages[0]!.content).toContain("read aloud");
+    expect(requests[1]!.messages[0]!.content).not.toContain("read aloud");
+  });
+
   it("refuses another user's conversation", async () => {
     const other = await prisma.user.create({ data: { email: "agent-other@example.local", displayName: "B", timezone: "UTC" } });
     const theirs = await prisma.conversation.create({ data: { userId: other.id, title: "private" } });

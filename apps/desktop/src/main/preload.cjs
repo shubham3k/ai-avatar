@@ -50,6 +50,13 @@ const bridge = {
   activityList: () => ipcRenderer.invoke("activity:list"),
   activityUndo: (entryId) => ipcRenderer.invoke("activity:undo", entryId),
   activityClear: () => ipcRenderer.invoke("activity:clear"),
+  chatSpeak: (text, voice) => ipcRenderer.invoke("chat:speak", text, voice),
+  saveChatHotkey: (accelerator) => ipcRenderer.invoke("settings:save-hotkey", accelerator),
+  onHotkey: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("zara:hotkey", listener);
+    return () => ipcRenderer.removeListener("zara:hotkey", listener);
+  },
   onInboxChanged: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("inbox:changed", listener);

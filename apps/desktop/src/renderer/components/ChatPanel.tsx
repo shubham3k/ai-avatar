@@ -7,18 +7,26 @@ export interface ChatPanelProps {
   onClose: () => void;
   /** Seconds of inactivity before the panel hides itself (conversation kept); 0 = never. */
   autoHideSeconds: number;
+  /** M4: bumped by the global hotkey — puts the cursor back in the message box. */
+  focusSignal?: number;
 }
 
 /**
  * Zara's chat (ADR-006, M2): a small panel directly above the dock. Replies
  * stream in; New chat starts fresh; 🕘 lists past chats. Hides itself after
- * autoHideSeconds without activity — never while Zara is working or the
- * mic is open.
+ * autoHideSeconds without activity — never while Zara is working, speaking,
+ * or the mic is open. Typing interrupts her speech (M4).
  */
-export function ChatPanel({ chat, onClose, autoHideSeconds }: ChatPanelProps) {
+export function ChatPanel({ chat, onClose, autoHideSeconds, focusSignal = 0 }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const [activityTick, setActivityTick] = useState(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const cannotSend = chat.sending || chat.recording || chat.transcribing;
+
+  useEffect(() => {
+    if (focusSignal > 0) inputRef.current?.focus();
+  }, [focusSignal]);
   const bump = () => setActivityTick((tick) => tick + 1);
 
   const lastMessage = chat.messages.at(-1);
@@ -40,7 +48,7 @@ export function ChatPanel({ chat, onClose, autoHideSeconds }: ChatPanelProps) {
 
   const submit = () => {
     const text = draft.trim();
-    if (!text || chat.busy) return;
+    if (!text || cannotSend) return;
     setDraft("");
     void chat.send(text);
   };
@@ -141,6 +149,18 @@ export function ChatPanel({ chat, onClose, autoHideSeconds }: ChatPanelProps) {
             ))}
           </div>
           {chat.recording && <div className="chat-status chat-listening">Listening… click 🎤 again when you're done.</div>}
+          {chat.handsFree && (
+            <div className="chat-status chat-listening">Listening hands-free — just talk. Click 🎤 to stop.</div>
+          )}
+          {chat.speaking && (
+            <div className="chat-status chat-speaking">
+              Zara is speaking…
+              <button type="button" className="chat-stop-speaking" onClick={chat.stopSpeaking}>
+                Stop
+              </button>
+            </div>
+          )}
+          {chat.voiceNotice && <div className="chat-status chat-voice-notice">{chat.voiceNotice}</div>}
           {chat.transcribing && <div className="chat-status">Turning your voice into text…</div>}
           {chat.status && <div className="chat-status">{chat.status}</div>}
           {chat.error && (
@@ -150,6 +170,7 @@ export function ChatPanel({ chat, onClose, autoHideSeconds }: ChatPanelProps) {
           )}
           <div className="chat-input-row">
             <input
+              ref={inputRef}
               className="chat-input"
               type="text"
               autoFocus
@@ -157,7 +178,11 @@ export function ChatPanel({ chat, onClose, autoHideSeconds }: ChatPanelProps) {
               placeholder="Message Zara…"
               value={draft}
               disabled={chat.recording || chat.transcribing}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                // Typing interrupts Zara's speech (ADR-006 §5).
+                if (chat.speaking) chat.stopSpeaking();
+                setDraft(e.target.value);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") submit();
               }}
@@ -166,7 +191,7 @@ export function ChatPanel({ chat, onClose, autoHideSeconds }: ChatPanelProps) {
               type="button"
               className="chat-send"
               aria-label="Send"
-              disabled={!draft.trim() || chat.busy}
+              disabled={!draft.trim() || cannotSend}
               onClick={submit}
             >
               ↵

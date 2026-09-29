@@ -13,7 +13,7 @@ export const PROVIDER_LABELS: Record<LlmProviderName, string> = {
 };
 
 /** What a call was for — recorded with its usage so "usage this month" can be broken down. */
-export type LlmOperation = "reminder_parse" | "prioritization" | "transcription" | "chat" | "other";
+export type LlmOperation = "reminder_parse" | "prioritization" | "transcription" | "chat" | "speech" | "other";
 
 export interface StructuredCompletionRequest {
   instructions: string;
@@ -41,6 +41,8 @@ export interface TranscriptionRequest {
   mimeType: string;
   /** Length of the clip as measured by the recorder — transcription is billed per minute. */
   durationSeconds?: number;
+  /** Vocabulary/language hint for the model (M4: English, Hindi, Hinglish). */
+  prompt?: string;
   operation?: LlmOperation;
 }
 
@@ -86,6 +88,24 @@ export interface LlmProvider {
   transcribeAudio(request: TranscriptionRequest): Promise<string>;
   /** One model turn with tools, streaming text as it's generated (ADR-006 chat). */
   streamChat(request: ChatRequest, onTextDelta: (delta: string) => void): Promise<ChatResult>;
+}
+
+/** M4: text → Zara's spoken voice. */
+export interface SpeechRequest {
+  text: string;
+  voice: string;
+  /** Tone/pronunciation guidance (gpt-4o-mini-tts supports it). */
+  instructions?: string;
+}
+
+/**
+ * Text-to-speech is its own capability, not part of LlmProvider: only
+ * OpenAI offers it here (Groq's voices don't speak Hindi), so there is no
+ * provider fallback — the desktop falls back to a local Windows voice.
+ */
+export interface SpeechProvider {
+  /** Returns MP3 audio. */
+  synthesizeSpeech(request: SpeechRequest): Promise<Buffer>;
 }
 
 /** One successful provider call, reported for usage tracking. Never contains content. */

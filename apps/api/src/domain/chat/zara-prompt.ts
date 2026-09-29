@@ -1,7 +1,7 @@
 import { formatLocalNow } from "../reminder-timing.js";
 
 /** Bump when the prompt's meaning changes. */
-export const ZARA_PROMPT_VERSION = "v4";
+export const ZARA_PROMPT_VERSION = "v5";
 
 export interface PromptMemoryFact {
   id: string;
@@ -16,8 +16,13 @@ export interface PromptMemoryFact {
 export function buildZaraSystemPrompt(
   now: Date,
   memory: PromptMemoryFact[] = [],
-  options: { incognito?: boolean } = {},
+  options: { incognito?: boolean; spoken?: boolean } = {},
 ): string {
+  // M4: spoken replies are read aloud by a text-to-speech voice. Placed
+  // near the end so typed and spoken turns share the cached prefix.
+  const spokenGuidance = options.spoken
+    ? "\n\nThe user just spoke to you, and your reply will be read aloud. Don't announce what you're about to check — call the tools first, then answer. Answer in one to three short, natural spoken sentences: no lists, symbols, emoji, URLs, or email addresses. Use the same language and script as the user's words (Hindi in Devanagari stays Devanagari; Hinglish in Latin letters stays Hinglish)."
+    : "";
   const memoryGuidance = options.incognito
     ? "This is an incognito chat: don't save, update, or forget anything, and don't offer to. You may still use what you already know."
     : `Memory: when the user shares a lasting fact about themselves, people in their life, or their preferences ("Rahul is my manager", "I prefer morning meetings"), save it with remember_fact and mention it in a few words ("Noted: …"). Don't save temporary plans, one-off questions, or sensitive details. If something you remember is wrong or outdated, fix it with update_fact or forget_fact. Use search_chats to recall earlier conversations.`;
@@ -42,7 +47,7 @@ Safety:
 - Never ask for or repeat passwords, OTPs, card or bank numbers, or ID numbers. Text shown as [redacted] was masked for privacy — don't guess what it was.
 
 What you remember about the user (ids are for tools only):
-${memoryList}
+${memoryList}${spokenGuidance}
 
 Current local time: ${formatLocalNow(now)}.
 `.trim();

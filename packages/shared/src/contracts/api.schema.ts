@@ -452,6 +452,8 @@ export const sendChatMessageRequestSchema = z.object({
   // Omit to start a new conversation (titled from the first message).
   conversationId: z.string().min(1).optional(),
   text: z.string().trim().min(1).max(4000),
+  // M4: the user spoke this message — Zara's reply will be read aloud.
+  spoken: z.boolean().optional(),
   // M3 incognito: nothing is stored or learned; the client sends the history instead.
   incognito: z.boolean().optional(),
   history: z
@@ -510,3 +512,29 @@ export const activityResponseSchema = z.object({ entries: z.array(activityEntryD
 export const activityQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(500).optional() });
 
 export const deletedCountResponseSchema = z.object({ deleted: z.number().int().min(0) });
+
+// ADR-006 (M4): Zara's voice. OpenAI's built-in TTS voices; marin is Zara's default.
+export const OPENAI_TTS_VOICES = [
+  "marin",
+  "cedar",
+  "coral",
+  "nova",
+  "shimmer",
+  "sage",
+  "alloy",
+  "ash",
+  "ballad",
+  "echo",
+  "fable",
+  "onyx",
+  "verse",
+] as const;
+export type OpenAiTtsVoice = (typeof OPENAI_TTS_VOICES)[number];
+export const DEFAULT_OPENAI_TTS_VOICE: OpenAiTtsVoice = "marin";
+
+// One sentence or a short group of them — the desktop speaks replies in chunks.
+export const speakRequestSchema = z.object({
+  text: z.string().trim().min(1).max(1000),
+  voice: z.enum(OPENAI_TTS_VOICES),
+});
+export const speakResponseSchema = z.object({ audioBase64: z.string(), mimeType: z.literal("audio/mpeg") });

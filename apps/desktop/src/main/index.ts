@@ -2,6 +2,7 @@ import { join } from "node:path";
 import {
   app,
   BrowserWindow,
+  globalShortcut,
   ipcMain,
   Menu,
   type MenuItemConstructorOptions,
@@ -17,6 +18,7 @@ import { resolveApiRoot } from "./api-location.js";
 import { startEmbeddedApiServer, type EmbeddedApiServer } from "./api-server.js";
 import { ensureEncryptionKey, loadUserConfig, saveUserConfig } from "./app-config.js";
 import { formatClockTime } from "./format-time.js";
+import { createHotkeyManager, DEFAULT_CHAT_HOTKEY, type HotkeyManager } from "./hotkey.js";
 import { runMigrations } from "./migrate.js";
 import { createPauseState } from "./pause-state.js";
 import { createSyncScheduler, type SyncScheduler } from "./sync-scheduler.js";
@@ -33,6 +35,7 @@ const PAUSE_DURATIONS_MS: Array<{ label: string; ms: number }> = [
 let mainWindow: BrowserWindow | null = null;
 let embeddedApi: EmbeddedApiServer | null = null;
 let syncScheduler: SyncScheduler | null = null;
+let hotkeys: HotkeyManager | null = null;
 // Module-level, not local to whenReady(): Electron garbage-collects a Tray
 // with no other references, silently removing the icon from the system
 // tray — a bug that's invisible until someone actually looks for the icon,
@@ -198,6 +201,22 @@ app.whenReady().then(async () => {
     devServerUrl: "http://localhost:5173",
   });
 
+  // ADR-006 M4: the global shortcut brings Zara up from anywhere. The
+  // renderer decides what a press means (open chat, or start/stop talking
+  // when it's already open).
+  hotkeys = createHotkeyManager({
+    globalShortcut,
+    initial: userConfig.chatHotkey ?? DEFAULT_CHAT_HOTKEY,
+    onPress: () => {
+      const win = mainWindow;
+      if (!win || win.isDestroyed()) return;
+      if (!win.isVisible()) win.show();
+      win.focus();
+      win.webContents.send("zara:hotkey");
+    },
+    logger: { warn: (message) => console.warn(`[hotkey] ${message}`) },
+  });
+
   registerIpc({
     ipcMain,
     getWindow: () => mainWindow,
@@ -226,6 +245,13 @@ app.whenReady().then(async () => {
       saveUserConfig(userDataDir, safeStorage, { openaiModel: model });
       app.relaunch();
       app.exit(0);
+    },
+    getChatHotkey: () => hotkeys?.current() ?? null,
+    changeChatHotkey: (accelerator) => {
+      if (!hotkeys) return { ok: false, message: "Shortcuts aren't available." };
+      const result = hotkeys.change(accelerator);
+      if (result.ok) saveUserConfig(userDataDir, safeStorage, { chatHotkey: result.accelerator });
+      return result;
     },
     saveGoogleCredentialsAndRestart: (clientId, clientSecret) => {
       saveUserConfig(userDataDir, safeStorage, {
@@ -336,6 +362,10 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   app.quit();
+});
+
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
 });
 
 app.on("before-quit", (event) => {

@@ -119,6 +119,8 @@ export function createZaraAgentService(dependencies?: {
         /** Incognito (M3): nothing is stored and nothing is learned; the client supplies the history. */
         incognito?: boolean | undefined;
         history?: { role: "user" | "assistant"; content: string }[] | undefined;
+        /** M4: the user spoke this message, so the reply will be read aloud. */
+        spoken?: boolean | undefined;
       },
       emit: (event: ChatEvent) => void,
       now: Date = new Date(),
@@ -144,7 +146,7 @@ export function createZaraAgentService(dependencies?: {
 
       const facts = await memory.list(userId, MEMORY_CONTEXT_LIMIT);
       const messages: ChatTurnMessage[] = [
-        { role: "system", content: buildZaraSystemPrompt(now, facts, { incognito }) },
+        { role: "system", content: buildZaraSystemPrompt(now, facts, { incognito, spoken: request.spoken === true }) },
         ...history.map((message): ChatTurnMessage =>
           message.role === "assistant"
             ? { role: "assistant", content: message.content }

@@ -30,9 +30,22 @@ const TRANSCRIPTION_PRICES: Record<string, number> = {
   "whisper-1": 0.006,
 };
 
+/**
+ * USD per minute of generated speech — OpenAI's own per-minute estimate for
+ * gpt-4o-mini-tts (it's billed per text + audio token; $0.60 / $12 per 1M).
+ */
+const SPEECH_PRICES: Record<string, number> = {
+  "gpt-4o-mini-tts": 0.015,
+};
+
 /** Estimated USD cost of one call, or null when the model's price isn't known. */
 export function estimateCostUsd(event: LlmUsageEvent): number | null {
   if (event.provider !== "openai") return null;
+
+  if (event.operation === "speech") {
+    const perMinute = SPEECH_PRICES[event.model];
+    return perMinute === undefined ? null : (event.audioSeconds / 60) * perMinute;
+  }
 
   if (event.audioSeconds > 0 || event.operation === "transcription") {
     const perMinute = TRANSCRIPTION_PRICES[event.model];

@@ -69,6 +69,8 @@ export interface ApiClient {
   listConversations(): Promise<unknown>;
   getConversationMessages(conversationId: string): Promise<unknown>;
   transcribe(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
+  /** M4: one chunk of Zara's reply as MP3 (`{ audioBase64, mimeType }`) in the given OpenAI voice. */
+  speak(text: string, voice: string): Promise<unknown>;
   /** Sends a message and streams Zara's reply; resolves when the stream ends. Omit conversationId to start a new chat. */
   sendChatMessage(request: ChatSendRequest, onEvent: (event: unknown) => void): Promise<void>;
   /** ADR-006 (M3): chat deletion, memory page, activity log. */
@@ -89,6 +91,8 @@ export interface ChatSendRequest {
   /** Incognito (M3): nothing stored or learned — the client supplies the history. */
   incognito?: boolean | undefined;
   history?: { role: "user" | "assistant"; content: string }[] | undefined;
+  /** M4: the user spoke this message — Zara's reply will be read aloud. */
+  spoken?: boolean | undefined;
 }
 
 export interface FetchLike {
@@ -221,6 +225,9 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
           ...(durationSeconds !== undefined ? { durationSeconds } : {}),
         }),
       });
+    },
+    speak(text, voice) {
+      return request("/chat/speak", { method: "POST", body: JSON.stringify({ text, voice }) });
     },
     async sendChatMessage(body, onEvent) {
       const response = await fetchImpl(`${normalizedBase}/api/v1/chat/messages`, {
