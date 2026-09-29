@@ -104,7 +104,7 @@ export function useReminderComposer(): ReminderComposer {
     try {
       const audioBase64 = await blobToBase64(clip.blob);
       const result = readReminderResult(
-        await window.desktopAPI.createReminderFromVoice(audioBase64, clip.mimeType),
+        await window.desktopAPI.createReminderFromVoice(audioBase64, clip.mimeType, clip.durationSeconds),
       );
       if (result.ok) {
         showConfirmation(describeCreatedReminder(result.reminder));

@@ -30,6 +30,8 @@ export interface CreateReminderFromVoiceRequest {
   /** Base64-encoded audio (no data: URI prefix). */
   audioBase64: string;
   mimeType: string;
+  /** Recording length measured by the client — transcription is billed per minute (usage estimate only). */
+  durationSeconds?: number | undefined;
 }
 
 function normalizeText(text: string): string {
@@ -143,7 +145,7 @@ export function createRemindersService(dependencies?: {
         throw validationError("No audio was recorded.");
       }
 
-      const transcribed = await transcription.transcribe(audio, request.mimeType);
+      const transcribed = await transcription.transcribe(audio, request.mimeType, request.durationSeconds);
       if (!transcribed.ok) {
         if (
           transcribed.code === "auth_rejected" ||

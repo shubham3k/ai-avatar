@@ -408,6 +408,9 @@ export const createReminderFromVoiceRequestSchema = z.object({
   // few hundred KB at most.
   audioBase64: z.string().min(1).max(10_000_000),
   mimeType: z.string().min(1),
+  // Measured by the recorder; only used to estimate transcription cost
+  // (billed per minute). Optional so older clients still validate.
+  durationSeconds: z.number().min(0).max(600).optional(),
 });
 export type CreateReminderFromVoiceRequest = z.infer<
   typeof createReminderFromVoiceRequestSchema
@@ -428,3 +431,18 @@ export const deleteReminderResponseSchema = z.object({
   deleted: z.literal(true),
 });
 export type DeleteReminderResponse = z.infer<typeof deleteReminderResponseSchema>;
+
+// ADR-006: estimated AI usage for the current calendar month (Settings).
+const providerUsageSchema = z.object({
+  calls: z.number().int().min(0),
+  // Null when none of the provider's calls could be priced (e.g. Groq).
+  costUsd: z.number().min(0).nullable(),
+});
+export const llmUsageSummaryResponseSchema = z.object({
+  since: z.string(),
+  calls: z.number().int().min(0),
+  estimatedCostUsd: z.number().min(0),
+  openai: providerUsageSchema,
+  groq: providerUsageSchema,
+});
+export type LlmUsageSummaryResponse = z.infer<typeof llmUsageSummaryResponseSchema>;

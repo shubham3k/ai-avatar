@@ -243,7 +243,7 @@ export default function App() {
   // until both are done. `setupStatus === null` is the brief moment before
   // the first status load resolves; render nothing rather than flash the
   // wrong screen.
-  if (setupStatus && (!setupStatus.groqKeyConfigured || !setupStatus.googleConnected)) {
+  if (setupStatus && (!setupStatus.aiKeyConfigured || !setupStatus.googleConnected)) {
     return (
       <div className="overlay">
         <Settings />

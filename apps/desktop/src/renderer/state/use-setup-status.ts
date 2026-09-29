@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 export interface SetupStatus {
-  groqKeyConfigured: boolean;
+  /** ADR-006: an AI key is set — OpenAI (primary) or, for installs from before it, Groq alone. */
+  aiKeyConfigured: boolean;
   googleConnected: boolean;
   /** True once a sync call has come back 401/403 — Google's authorization was revoked or expired and needs reconnecting. Distinct from googleConnected: the stored connection row still exists, it just no longer works. */
   googleAuthError: boolean;
@@ -13,6 +14,7 @@ const POLL_INTERVAL_MS = 15_000;
 
 interface SettingsResponse {
   groqKeyConfigured: boolean;
+  openaiKeyConfigured?: boolean;
   googleAuthError?: boolean;
   lastCheckedAt?: number | null;
 }
@@ -32,7 +34,7 @@ function isGoogleStatusResponse(value: unknown): value is { connected: boolean }
 }
 
 /**
- * Polls whether the two setup steps (Groq key, Google connection) are
+ * Polls whether the two setup steps (an AI key, Google connection) are
  * done, on the same interval as intervention polling. Connecting Google
  * happens in the system browser, outside this window, so there's no push
  * signal when it finishes — polling is what lets the UI flip itself from
@@ -53,14 +55,14 @@ export function useSetupStatus() {
       settingsResult.status === "fulfilled" && isSettingsResponse(settingsResult.value)
         ? settingsResult.value
         : null;
-    const groqKeyConfigured = settings?.groqKeyConfigured ?? false;
+    const aiKeyConfigured = Boolean(settings?.openaiKeyConfigured || settings?.groqKeyConfigured);
     const googleAuthError = settings?.googleAuthError ?? false;
     const lastCheckedAt = settings?.lastCheckedAt ?? null;
     const googleConnected =
       googleResult.status === "fulfilled" && isGoogleStatusResponse(googleResult.value)
         ? googleResult.value.connected
         : false;
-    setStatus({ groqKeyConfigured, googleConnected, googleAuthError, lastCheckedAt });
+    setStatus({ aiKeyConfigured, googleConnected, googleAuthError, lastCheckedAt });
   }, []);
 
   useEffect(() => {

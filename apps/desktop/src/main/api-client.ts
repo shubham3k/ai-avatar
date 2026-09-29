@@ -43,7 +43,7 @@ export interface ApiClient {
    */
   createReminderFromText(text: string): Promise<unknown>;
   /** Same as createReminderFromText, but starting from a recorded voice clip (base64-encoded, no data: URI prefix) — transcribed by Groq, then parsed exactly the same way. */
-  createReminderFromVoice(audioBase64: string, mimeType: string): Promise<unknown>;
+  createReminderFromVoice(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
   /**
    * Runs the same sequence the background scheduler runs on its own
    * interval (see sync-scheduler.ts): check due reminders, sync Gmail,
@@ -63,6 +63,8 @@ export interface ApiClient {
    * scheduler can run it every minute for on-time alerts.
    */
   checkDue(): Promise<unknown>;
+  /** ADR-006: estimated AI usage for the current month (Settings). */
+  usageSummary(): Promise<unknown>;
 }
 
 export interface FetchLike {
@@ -124,11 +126,18 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
     createReminderFromText(text) {
       return request("/reminders/from-text", { method: "POST", body: JSON.stringify({ text }) });
     },
-    createReminderFromVoice(audioBase64, mimeType) {
+    createReminderFromVoice(audioBase64, mimeType, durationSeconds) {
       return request("/reminders/from-voice", {
         method: "POST",
-        body: JSON.stringify({ audioBase64, mimeType }),
+        body: JSON.stringify({
+          audioBase64,
+          mimeType,
+          ...(durationSeconds !== undefined ? { durationSeconds } : {}),
+        }),
       });
+    },
+    usageSummary() {
+      return request("/usage/summary");
     },
     async checkNow() {
       await request("/reminders/detect-signals", { method: "POST", body: "{}" });

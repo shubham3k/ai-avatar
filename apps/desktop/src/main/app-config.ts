@@ -30,21 +30,31 @@ export interface UserConfig {
    */
   googleClientId?: string | undefined;
   googleClientSecret?: string | undefined;
+  /** ADR-006: primary AI provider key, stored encrypted like groqApiKey (Groq is now the optional fallback). */
+  openaiApiKey?: string | undefined;
+  /** ADR-006: OpenAI chat model chosen in Settings (default gpt-6-luna when unset). */
+  openaiModel?: string | undefined;
 }
+
+/** Every persisted field — each stored encrypted (or base64 when no OS keychain exists). */
+const CONFIG_FIELDS = [
+  "groqApiKey",
+  "encryptionKey",
+  "googleClientId",
+  "googleClientSecret",
+  "openaiApiKey",
+  "openaiModel",
+] as const satisfies readonly (keyof UserConfig)[];
 
 export interface LoadedUserConfig extends UserConfig {
   /** False on platforms/environments where safeStorage has no OS keychain to use — the caller should warn the user their secrets are stored in plain text. */
   secureStorageAvailable: boolean;
 }
 
-interface StoredFileV2 {
+type StoredFileV2 = {
   version: 2;
   secure: boolean;
-  groqApiKey?: string | undefined;
-  encryptionKey?: string | undefined;
-  googleClientId?: string | undefined;
-  googleClientSecret?: string | undefined;
-}
+} & { [K in (typeof CONFIG_FIELDS)[number]]?: string | undefined };
 
 /** Phase 4.3's plaintext shape — read once, upgraded on next save. */
 interface StoredFileV1 {
@@ -92,25 +102,12 @@ export function loadUserConfig(userDataDir: string, safeStorage: SafeStorageLike
 
   const file = record as unknown as StoredFileV2;
   try {
-    return {
-      groqApiKey:
-        typeof file.groqApiKey === "string"
-          ? decodeField(file.groqApiKey, safeStorage, file.secure)
-          : undefined,
-      encryptionKey:
-        typeof file.encryptionKey === "string"
-          ? decodeField(file.encryptionKey, safeStorage, file.secure)
-          : undefined,
-      googleClientId:
-        typeof file.googleClientId === "string"
-          ? decodeField(file.googleClientId, safeStorage, file.secure)
-          : undefined,
-      googleClientSecret:
-        typeof file.googleClientSecret === "string"
-          ? decodeField(file.googleClientSecret, safeStorage, file.secure)
-          : undefined,
-      secureStorageAvailable,
-    };
+    const loaded: LoadedUserConfig = { secureStorageAvailable };
+    for (const field of CONFIG_FIELDS) {
+      const encoded = file[field];
+      loaded[field] = typeof encoded === "string" ? decodeField(encoded, safeStorage, file.secure) : undefined;
+    }
+    return loaded;
   } catch {
     // Most likely: encrypted on a different machine/OS-user account, so
     // the OS keychain can't decrypt it. Treat as unset rather than crash —
@@ -125,34 +122,14 @@ export function saveUserConfig(
   patch: UserConfig,
 ): LoadedUserConfig {
   const existing = loadUserConfig(userDataDir, safeStorage);
-  const merged: UserConfig = {
-    groqApiKey: patch.groqApiKey ?? existing.groqApiKey,
-    encryptionKey: patch.encryptionKey ?? existing.encryptionKey,
-    googleClientId: patch.googleClientId ?? existing.googleClientId,
-    googleClientSecret: patch.googleClientSecret ?? existing.googleClientSecret,
-  };
   const secure = safeStorage.isEncryptionAvailable();
-
-  const file: StoredFileV2 = {
-    version: 2,
-    secure,
-    groqApiKey:
-      merged.groqApiKey !== undefined
-        ? encodeField(merged.groqApiKey, safeStorage, secure)
-        : undefined,
-    encryptionKey:
-      merged.encryptionKey !== undefined
-        ? encodeField(merged.encryptionKey, safeStorage, secure)
-        : undefined,
-    googleClientId:
-      merged.googleClientId !== undefined
-        ? encodeField(merged.googleClientId, safeStorage, secure)
-        : undefined,
-    googleClientSecret:
-      merged.googleClientSecret !== undefined
-        ? encodeField(merged.googleClientSecret, safeStorage, secure)
-        : undefined,
-  };
+  const merged: UserConfig = {};
+  const file: StoredFileV2 = { version: 2, secure };
+  for (const field of CONFIG_FIELDS) {
+    const value = patch[field] ?? existing[field];
+    merged[field] = value;
+    file[field] = value !== undefined ? encodeField(value, safeStorage, secure) : undefined;
+  }
   writeFileSync(configPath(userDataDir), JSON.stringify(file, null, 2), "utf-8");
 
   return { ...merged, secureStorageAvailable: secure };

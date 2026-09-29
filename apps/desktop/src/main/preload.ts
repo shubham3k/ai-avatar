@@ -10,13 +10,17 @@ export interface DesktopApiBridge {
   openSource(url: string): Promise<void>;
   getSettings(): Promise<unknown>;
   saveGroqKey(key: string): Promise<void>;
+  /** ADR-006: primary AI provider key; saving restarts the app. */
+  saveOpenAiKey(key: string): Promise<void>;
+  saveOpenAiModel(model: string): Promise<void>;
+  getUsageSummary(): Promise<unknown>;
   saveGoogleCredentials(clientId: string, clientSecret: string): Promise<void>;
   googleStatus(): Promise<unknown>;
   disconnectGoogle(): Promise<unknown>;
   checkNow(): Promise<unknown>;
   createReminder(text: string, dueAt: string): Promise<unknown>;
   createReminderFromText(text: string): Promise<unknown>;
-  createReminderFromVoice(audioBase64: string, mimeType: string): Promise<unknown>;
+  createReminderFromVoice(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
   /** Fires when the main process's background scheduler finishes a check; returns an unsubscribe function. */
   onInboxChanged(callback: () => void): () => void;
 }
@@ -32,6 +36,9 @@ const bridge: DesktopApiBridge = {
   openSource: (url) => ipcRenderer.invoke("intervention:open-source", url),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveGroqKey: (key) => ipcRenderer.invoke("settings:save-groq-key", key),
+  saveOpenAiKey: (key) => ipcRenderer.invoke("settings:save-openai-key", key),
+  saveOpenAiModel: (model) => ipcRenderer.invoke("settings:save-openai-model", model),
+  getUsageSummary: () => ipcRenderer.invoke("usage:summary"),
   saveGoogleCredentials: (clientId, clientSecret) =>
     ipcRenderer.invoke("settings:save-google-credentials", clientId, clientSecret),
   googleStatus: () => ipcRenderer.invoke("integrations:google-status"),
@@ -39,8 +46,8 @@ const bridge: DesktopApiBridge = {
   checkNow: () => ipcRenderer.invoke("assistant:check-now"),
   createReminder: (text, dueAt) => ipcRenderer.invoke("reminders:create", text, dueAt),
   createReminderFromText: (text) => ipcRenderer.invoke("reminders:create-from-text", text),
-  createReminderFromVoice: (audioBase64, mimeType) =>
-    ipcRenderer.invoke("reminders:create-from-voice", audioBase64, mimeType),
+  createReminderFromVoice: (audioBase64, mimeType, durationSeconds) =>
+    ipcRenderer.invoke("reminders:create-from-voice", audioBase64, mimeType, durationSeconds),
   onInboxChanged: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("inbox:changed", listener);

@@ -258,6 +258,7 @@ describe("reminders service — createReminderFromVoice", () => {
     expect(transcription.transcribe).toHaveBeenCalledWith(
       Buffer.from("fake-audio"),
       "audio/webm",
+      undefined,
     );
     expect(parsing.parse).toHaveBeenCalledWith("remind me to drink water at 4pm", NOW);
     expect(reminders.create).toHaveBeenCalledWith({

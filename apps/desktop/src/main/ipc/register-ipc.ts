@@ -35,14 +35,33 @@ export async function toReminderCreateResult(
   }
 }
 
+/**
+ * ADR-006: OpenAI chat models offered in Settings, cheapest first, with the
+ * default. Prices are Sept 28, 2026 estimates — shown as a guide only.
+ */
+export const OPENAI_MODEL_CHOICES = [
+  { id: "gpt-5-nano", label: "gpt-5-nano — cheapest" },
+  { id: "gpt-6-luna", label: "gpt-6-luna — recommended" },
+  { id: "gpt-6-sol", label: "gpt-6-sol — most capable (~20× cost)" },
+] as const;
+export const DEFAULT_OPENAI_MODEL = "gpt-6-luna";
+
+export function isOpenAiModelChoice(value: unknown): value is (typeof OPENAI_MODEL_CHOICES)[number]["id"] {
+  return OPENAI_MODEL_CHOICES.some((choice) => choice.id === value);
+}
+
 export function registerIpc(options: {
   ipcMain: IpcMain;
   getWindow: () => BrowserWindow | null;
   api: ApiClient;
   apiUrl: string;
   shell: ShellLike;
-  /** Whether a Groq key is currently configured (via .env or the settings UI) — fixed for this process's lifetime. */
+  /** Whether a Groq key is currently configured (via .env or the settings UI) — fixed for this process's lifetime. Since ADR-006 Groq is the optional fallback. */
   groqKeyConfigured: boolean;
+  /** ADR-006: whether an OpenAI key (the primary provider) is configured — fixed for this process's lifetime. */
+  openaiKeyConfigured: boolean;
+  /** ADR-006: the OpenAI chat model in effect for this process. */
+  openaiModel: string;
   /** Whether Google OAuth client credentials are currently configured (via .env or the settings UI) — fixed for this process's lifetime. See Phase 4.7. */
   googleOAuthConfigured: boolean;
   /** Whether secrets are actually OS-keychain-encrypted (false = platform/environment has no keychain; stored as plain base64 instead — Settings should warn). */
@@ -55,6 +74,9 @@ export function registerIpc(options: {
   getLastCheckedAt: () => number | null;
   /** Persists the key and restarts the whole app so the embedded API picks it up (see docs/SINGLE_PROCESS_DESKTOP.md). */
   saveGroqKeyAndRestart: (key: string) => void;
+  /** Same restart-required rationale as the Groq key. */
+  saveOpenAiKeyAndRestart: (key: string) => void;
+  saveOpenAiModelAndRestart: (model: string) => void;
   /** Same restart-required rationale as the Groq key — see docs/SINGLE_PROCESS_DESKTOP.md. */
   saveGoogleCredentialsAndRestart: (clientId: string, clientSecret: string) => void;
 }): void {
@@ -65,12 +87,16 @@ export function registerIpc(options: {
     apiUrl,
     shell,
     groqKeyConfigured,
+    openaiKeyConfigured,
+    openaiModel,
     googleOAuthConfigured,
     secureStorageAvailable,
     startupError,
     getGoogleAuthError,
     getLastCheckedAt,
     saveGroqKeyAndRestart,
+    saveOpenAiKeyAndRestart,
+    saveOpenAiModelAndRestart,
     saveGoogleCredentialsAndRestart,
   } = options;
 
@@ -120,12 +146,31 @@ export function registerIpc(options: {
 
   ipcMain.handle("settings:get", async () => ({
     groqKeyConfigured,
+    openaiKeyConfigured,
+    openaiModel,
+    openaiModelChoices: OPENAI_MODEL_CHOICES,
     googleOAuthConfigured,
     secureStorageAvailable,
     startupError,
     googleAuthError: getGoogleAuthError(),
     lastCheckedAt: getLastCheckedAt(),
   }));
+
+  ipcMain.handle("settings:save-openai-key", async (_event, key: unknown) => {
+    if (typeof key !== "string" || key.trim().length === 0) {
+      throw new Error("Invalid OpenAI API key");
+    }
+    saveOpenAiKeyAndRestart(key.trim());
+  });
+
+  ipcMain.handle("settings:save-openai-model", async (_event, model: unknown) => {
+    if (!isOpenAiModelChoice(model)) {
+      throw new Error("Unsupported OpenAI model");
+    }
+    saveOpenAiModelAndRestart(model);
+  });
+
+  ipcMain.handle("usage:summary", async () => api.usageSummary());
 
   ipcMain.handle("settings:save-groq-key", async (_event, key: unknown) => {
     if (typeof key !== "string" || key.trim().length === 0) {
@@ -172,14 +217,19 @@ export function registerIpc(options: {
 
   ipcMain.handle(
     "reminders:create-from-voice",
-    async (_event, audioBase64: unknown, mimeType: unknown) => {
+    async (_event, audioBase64: unknown, mimeType: unknown, durationSeconds: unknown) => {
       if (typeof audioBase64 !== "string" || audioBase64.length === 0) {
         throw new Error("Invalid audio data");
       }
       if (typeof mimeType !== "string" || mimeType.length === 0) {
         throw new Error("Invalid audio mime type");
       }
-      return toReminderCreateResult(() => api.createReminderFromVoice(audioBase64, mimeType));
+      // Only used for the usage estimate — drop anything implausible rather than reject the recording.
+      const duration =
+        typeof durationSeconds === "number" && Number.isFinite(durationSeconds) && durationSeconds >= 0 && durationSeconds <= 600
+          ? durationSeconds
+          : undefined;
+      return toReminderCreateResult(() => api.createReminderFromVoice(audioBase64, mimeType, duration));
     },
   );
 

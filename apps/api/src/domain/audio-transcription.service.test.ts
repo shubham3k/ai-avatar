@@ -27,9 +27,14 @@ describe("audio transcription service", () => {
     const service = createAudioTranscriptionService({ provider });
     const buffer = Buffer.from("audio-bytes");
 
-    await service.transcribe(buffer, "audio/webm");
+    await service.transcribe(buffer, "audio/webm", 4.2);
 
-    expect(provider.transcribeAudio).toHaveBeenCalledWith({ audio: buffer, mimeType: "audio/webm" });
+    expect(provider.transcribeAudio).toHaveBeenCalledWith({
+      audio: buffer,
+      mimeType: "audio/webm",
+      operation: "transcription",
+      durationSeconds: 4.2,
+    });
   });
 
   it("returns not_configured when Groq isn't configured", async () => {

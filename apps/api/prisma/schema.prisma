@@ -208,3 +208,22 @@ model AgentRun {
 
   @@index([userId, createdAt])
 }
+
+// ADR-006: one row per successful AI provider call, for "usage this month"
+// in Settings. Counts only — never prompt/response content. App-level (not
+// per-user): the desktop app is single-user and usage is billed per API key.
+model LlmUsage {
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())
+  provider          String // "openai" | "groq"
+  model             String
+  operation         String // "reminder_parse" | "prioritization" | "transcription" | "other"
+  inputTokens       Int      @default(0)
+  cachedInputTokens Int      @default(0)
+  outputTokens      Int      @default(0)
+  audioSeconds      Float    @default(0)
+  // Estimated at record time from pricing.ts; null when the model's price is unknown.
+  costUsd           Float?
+
+  @@index([createdAt])
+}

@@ -1,10 +1,11 @@
 import { z } from "zod";
 import {
-  classifyGroqFailure,
-  createGroqProvider,
-  groqFailureDetail,
-  type GroqProvider,
-} from "../providers/groq/groq-client.js";
+  classifyLlmFailure,
+  llmFailureDetail,
+  type LlmProvider,
+} from "../providers/llm/llm-provider.js";
+import { createDefaultLlmProvider } from "./llm-usage.service.js";
+import { providerFailureMessage, type ProviderFailureCode } from "./llm-failure-messages.js";
 import {
   REMINDER_PARSE_PROMPT_VERSION,
   REMINDER_PARSE_SYSTEM_PROMPT,
@@ -40,36 +41,33 @@ const reminderIntentSchema = z.object({
 });
 
 /**
- * User-facing messages — shown as-is in the desktop Settings panel, so they
- * say what to do next, never expose provider internals. Shared with
- * audio-transcription.service.ts for the provider failure cases.
+ * User-facing messages for failures that aren't about the provider — shown
+ * as-is in the desktop app. Provider failures are worded by
+ * llm-failure-messages.ts so they name whichever provider actually failed.
  */
 export const REMINDER_FAILURE_MESSAGES = {
-  not_configured: "Add your Groq API key in Settings to create reminders.",
-  auth_rejected: "Your Groq API key was rejected. Update it in Settings.",
-  model_unavailable:
-    "The AI model this app uses is no longer available on Groq. The app needs an update.",
-  provider_error: "Groq is busy or unreachable right now. Try again in a moment.",
   malformed_output:
     "Couldn't work out a reminder from that. Try rephrasing, e.g. \"remind me at 4pm to call Rahul\".",
   missing_time: "When should I remind you? Add a time, like \"at 4pm\" or \"in 10 minutes\".",
   time_in_past: "That time has already passed. Try a time in the future.",
-} as const satisfies Record<ReminderParseFailureCode, string>;
+} as const satisfies Record<Exclude<ReminderParseFailureCode, ProviderFailureCode>, string>;
 
-/** `detail` (e.g. "HTTP 429 rate_limit_exceeded") is appended so provider failures can be diagnosed from the screen. */
-function failure(code: ReminderParseFailureCode, detail: string | null = null): ReminderParseOutcome {
-  const base = REMINDER_FAILURE_MESSAGES[code];
-  return { ok: false, code, message: detail ? `${base} (Groq: ${detail})` : base };
+function failure(code: keyof typeof REMINDER_FAILURE_MESSAGES): ReminderParseOutcome {
+  return { ok: false, code, message: REMINDER_FAILURE_MESSAGES[code] };
+}
+
+function providerFailure(code: ProviderFailureCode, err: unknown): ReminderParseOutcome {
+  return { ok: false, code, message: providerFailureMessage(code, err, "reminders") };
 }
 
 /**
  * Turns free text ("remind me to drink water at 4pm") into a reminder.
- * Groq extracts intent only (what kind of time was said, ping vs event —
+ * The model extracts intent only (what kind of time was said, ping vs event —
  * docs/decisions/ADR-005-reminder-timing.md); reminder-timing.ts computes
  * dueAt/remindAt deterministically in local time.
  */
-export function createReminderParsingService(dependencies?: { provider?: GroqProvider }) {
-  const provider = dependencies?.provider ?? createGroqProvider();
+export function createReminderParsingService(dependencies?: { provider?: LlmProvider }) {
+  const provider = dependencies?.provider ?? createDefaultLlmProvider();
 
   return {
     async parse(text: string, now: Date = new Date()): Promise<ReminderParseOutcome> {
@@ -80,6 +78,7 @@ export function createReminderParsingService(dependencies?: { provider?: GroqPro
         jsonSchema: buildReminderParseJsonSchema(),
         // The intent JSON is ~60–80 tokens; ample headroom, well under Groq's per-minute budget.
         maxOutputTokens: 300,
+        operation: "reminder_parse" as const,
       };
 
       let raw: string | null = null;
@@ -90,17 +89,14 @@ export function createReminderParsingService(dependencies?: { provider?: GroqPro
         try {
           raw = await provider.createStructuredCompletion(request);
         } catch (err) {
-          const kind = classifyGroqFailure(err);
-          if (kind === "not_configured") return failure("not_configured");
-          if (kind === "auth_rejected") return failure("auth_rejected");
-          if (kind === "model_unavailable") {
-            return failure("model_unavailable", groqFailureDetail(err));
+          const kind = classifyLlmFailure(err);
+          if (kind === "not_configured" || kind === "auth_rejected" || kind === "model_unavailable") {
+            return providerFailure(kind, err);
           }
           // A rate-limit refusal (429) won't clear within an immediate retry —
           // retrying just spends the per-minute budget again.
-          const detail = groqFailureDetail(err);
-          if (attempt >= MAX_PROVIDER_ATTEMPTS || detail?.startsWith("HTTP 429")) {
-            return failure("provider_error", detail);
+          if (attempt >= MAX_PROVIDER_ATTEMPTS || llmFailureDetail(err)?.startsWith("HTTP 429")) {
+            return providerFailure("provider_error", err);
           }
         }
       }

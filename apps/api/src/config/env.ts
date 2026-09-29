@@ -10,6 +10,16 @@ if (envFile) {
   dotenv.config();
 }
 
+/**
+ * An optional setting where an empty value (`OPENAI_MODEL=` in a .env file)
+ * means "not set" — so `?? default` fallbacks apply, instead of an empty
+ * string being used as a model name or API key.
+ */
+const optionalSetting = z
+  .string()
+  .optional()
+  .transform((value) => (value === undefined || value.trim() === "" ? undefined : value));
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   // SQLite (Phase 4.1) — a `file:` path, resolved relative to
@@ -18,11 +28,15 @@ const envSchema = z.object({
   // Required for encrypting Google OAuth refresh/access tokens at rest.
   // Base64-encoded 32-byte key, e.g. `openssl rand -base64 32`.
   ENCRYPTION_KEY: z.string().min(32).optional(),
-  GROQ_API_KEY: z.string().optional(),
-  GROQ_MODEL: z.string().optional(),
-  GROQ_TRANSCRIBE_MODEL: z.string().optional(),
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  // ADR-006: OpenAI is the primary AI provider; Groq the optional fallback.
+  OPENAI_API_KEY: optionalSetting,
+  OPENAI_MODEL: optionalSetting,
+  OPENAI_TRANSCRIBE_MODEL: optionalSetting,
+  GROQ_API_KEY: optionalSetting,
+  GROQ_MODEL: optionalSetting,
+  GROQ_TRANSCRIBE_MODEL: optionalSetting,
+  GOOGLE_CLIENT_ID: optionalSetting,
+  GOOGLE_CLIENT_SECRET: optionalSetting,
   GOOGLE_REDIRECT_URI: z.string().url().optional(),
   APP_BASE_URL: z.string().url().default("http://localhost:3000"),
   API_BASE_URL: z.string().url().default("http://localhost:4000"),

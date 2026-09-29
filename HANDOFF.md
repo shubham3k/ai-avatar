@@ -7,6 +7,24 @@
 
 ---
 
+## Addendum: Zara M0–M1 — design record, OpenAI brain, Groq fallback, usage (September 29, 2026)
+
+Work now happens on branch **`zara-agent`** (created from `main` after checkpoint commit `3a96d64`; merge back when the Zara milestones are complete). The full design is **`docs/decisions/ADR-006-zara-personal-agent.md`** — read it before any Zara work.
+
+**M0 (commit `d96f08a`):** ADR-006; Groq requests always send `max_completion_tokens` (default 800; 300 reminder parsing; 800 prioritization) — Groq budgets the *max* reply against the free plan's 1,000 output tokens/min, so the unset default (2048) was rejected on every call; 429s aren't retried immediately.
+
+**M1 — the brain:**
+- `providers/llm/`: provider-neutral `LlmProvider` + typed `LlmProviderError` (kind, detail, provider); one `openai-compatible-client.ts` serves OpenAI and Groq; `fallback-provider.ts` (backup only on 429/5xx/network — never on bad key, retired model, or bad request); `create-llm-provider.ts` (OpenAI key → OpenAI + optional Groq fallback; Groq key only → Groq alone; none → OpenAI "not configured").
+- `providers/openai/openai-provider.ts`: default `gpt-6-luna`, transcription `gpt-4o-mini-transcribe`; every chat call sends `store: false` and `reasoning_effort: "none"` (luna is a reasoning model; Chat Completions only supports function calling at "none", and reasoning would eat `max_completion_tokens`).
+- `groq-client.ts` is now a thin wrapper re-exporting the old names (`GroqProviderError` etc.).
+- All three AI call sites (reminder parsing, voice transcription, prioritization) use `createDefaultLlmProvider()` (`domain/llm-usage.service.ts`); provider failures are worded by `domain/llm-failure-messages.ts` and name the provider that actually failed.
+- Usage: new `LlmUsage` table (migration `zara_m1_llm_usage`, counts only — never content), `pricing.ts` (Sept 28 prices; estimate only, Groq counted not costed), `GET /api/v1/usage/summary`.
+- `env.ts`: `OPENAI_API_KEY/OPENAI_MODEL/OPENAI_TRANSCRIBE_MODEL`; empty values now mean "unset" (a blank `OPENAI_MODEL=` was being used as the model name). **`apps/api/.env.test` blanks the OpenAI vars too** so tests can never make real, billed OpenAI calls.
+- Desktop: OpenAI key + model stored encrypted in `config.json` (`app-config.ts` now iterates a field list); Settings has "AI provider (OpenAI)" at the top (key, model picker cheapest→most capable, usage this month) and Groq relabelled "backup, optional"; first-run gate accepts an OpenAI key (or Groq alone); voice clips report their duration for the transcription estimate.
+- Verified: API 584/584, desktop 141/141, typecheck + lint clean; live: Groq-only path works; an invalid OpenAI key reaches OpenAI and is reported ("Your OpenAI API key was rejected…") without silently falling back. **A real OpenAI answer has not been verified yet** — no OpenAI key in the dev env; the user tests it in the built app.
+
+---
+
 ## Addendum: Reminder timing rework, on-time delivery, real error messages (September 25, 2026)
 
 **Not committed; source only — the `.exe` has NOT been rebuilt with these changes (user asked to hold off).** Design recorded in `docs/decisions/ADR-005-reminder-timing.md`.

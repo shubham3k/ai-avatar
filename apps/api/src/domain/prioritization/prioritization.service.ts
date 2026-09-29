@@ -1,8 +1,7 @@
 import { z } from "zod";
-import {
-  createGroqProvider,
-  type GroqProvider,
-} from "../../providers/groq/groq-client.js";
+import { classifyLlmFailure, type LlmProvider } from "../../providers/llm/llm-provider.js";
+import { providerFailureMessage } from "../llm-failure-messages.js";
+import { createDefaultLlmProvider } from "../llm-usage.service.js";
 import {
   PRIORITIZATION_SYSTEM_PROMPT,
   PRIORITIZATION_PROMPT_VERSION,
@@ -31,8 +30,8 @@ const rawPrioritizationSchema = z.object({
   ),
 });
 
-export function createPrioritizationService(dependencies?: { provider?: GroqProvider }) {
-  const provider = dependencies?.provider ?? createGroqProvider();
+export function createPrioritizationService(dependencies?: { provider?: LlmProvider }) {
+  const provider = dependencies?.provider ?? createDefaultLlmProvider();
 
   return {
     async prioritize(input: PrioritizationInput): Promise<PrioritizationOutcome> {
@@ -52,16 +51,20 @@ export function createPrioritizationService(dependencies?: { provider?: GroqProv
           // Ranked situations with one-line reasons; an oversized reply fails Zod
           // validation and is reported like any other malformed output.
           maxOutputTokens: 800,
+          operation: "prioritization",
         });
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Groq request failed.";
-        if (/not configured/i.test(message)) {
-          return { ok: false, code: "not_configured", message };
+        if (classifyLlmFailure(err) === "not_configured") {
+          return {
+            ok: false,
+            code: "not_configured",
+            message: providerFailureMessage("not_configured", err, "AI prioritization"),
+          };
         }
         return {
           ok: false,
           code: "provider_error",
-          message: "Groq prioritization is temporarily unavailable. Try again shortly.",
+          message: providerFailureMessage("provider_error", err, "AI prioritization"),
         };
       }
 
@@ -72,7 +75,7 @@ export function createPrioritizationService(dependencies?: { provider?: GroqProv
         return {
           ok: false,
           code: "malformed_output",
-          message: "Groq returned a response that was not valid JSON.",
+          message: "The AI returned a response that was not valid JSON.",
         };
       }
 
@@ -81,7 +84,7 @@ export function createPrioritizationService(dependencies?: { provider?: GroqProv
         return {
           ok: false,
           code: "malformed_output",
-          message: "Groq response did not match the expected prioritization shape.",
+          message: "The AI response did not match the expected prioritization shape.",
         };
       }
 

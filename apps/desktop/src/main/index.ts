@@ -22,7 +22,7 @@ import { createPauseState } from "./pause-state.js";
 import { createSyncScheduler, type SyncScheduler } from "./sync-scheduler.js";
 import { TRAY_ICON_DATA_URL } from "./tray-icon.js";
 import { createOverlayWindow } from "./windows/overlay-window.js";
-import { registerIpc } from "./ipc/register-ipc.js";
+import { DEFAULT_OPENAI_MODEL, registerIpc } from "./ipc/register-ipc.js";
 
 const PAUSE_DURATIONS_MS: Array<{ label: string; ms: number }> = [
   { label: "For 30 minutes", ms: 30 * 60_000 },
@@ -70,6 +70,17 @@ app.whenReady().then(async () => {
     process.env.GROQ_API_KEY = userConfig.groqApiKey;
   }
   const groqKeyConfigured = Boolean(userConfig.groqApiKey ?? process.env.GROQ_API_KEY);
+
+  // ADR-006: OpenAI is the primary provider (Groq the optional fallback).
+  // Same precedence: values saved through Settings win over .env.
+  if (userConfig.openaiApiKey) {
+    process.env.OPENAI_API_KEY = userConfig.openaiApiKey;
+  }
+  if (userConfig.openaiModel) {
+    process.env.OPENAI_MODEL = userConfig.openaiModel;
+  }
+  const openaiKeyConfigured = Boolean(userConfig.openaiApiKey ?? process.env.OPENAI_API_KEY);
+  const openaiModel = process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_MODEL;
 
   // Phase 4.7: same precedence as the Groq key — a value saved through
   // Settings wins over whatever (if anything) is in .env. Deliberately
@@ -194,6 +205,8 @@ app.whenReady().then(async () => {
     apiUrl,
     shell,
     groqKeyConfigured,
+    openaiKeyConfigured,
+    openaiModel,
     googleOAuthConfigured,
     secureStorageAvailable: safeStorage.isEncryptionAvailable(),
     startupError,
@@ -201,6 +214,16 @@ app.whenReady().then(async () => {
     getLastCheckedAt: () => lastCheckedAt,
     saveGroqKeyAndRestart: (key) => {
       saveUserConfig(userDataDir, safeStorage, { groqApiKey: key });
+      app.relaunch();
+      app.exit(0);
+    },
+    saveOpenAiKeyAndRestart: (key) => {
+      saveUserConfig(userDataDir, safeStorage, { openaiApiKey: key });
+      app.relaunch();
+      app.exit(0);
+    },
+    saveOpenAiModelAndRestart: (model) => {
+      saveUserConfig(userDataDir, safeStorage, { openaiModel: model });
       app.relaunch();
       app.exit(0);
     },

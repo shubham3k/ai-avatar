@@ -14,6 +14,9 @@ const bridge = {
   openSource: (url) => ipcRenderer.invoke("intervention:open-source", url),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveGroqKey: (key) => ipcRenderer.invoke("settings:save-groq-key", key),
+  saveOpenAiKey: (key) => ipcRenderer.invoke("settings:save-openai-key", key),
+  saveOpenAiModel: (model) => ipcRenderer.invoke("settings:save-openai-model", model),
+  getUsageSummary: () => ipcRenderer.invoke("usage:summary"),
   saveGoogleCredentials: (clientId, clientSecret) =>
     ipcRenderer.invoke("settings:save-google-credentials", clientId, clientSecret),
   googleStatus: () => ipcRenderer.invoke("integrations:google-status"),
@@ -22,8 +25,8 @@ const bridge = {
   createReminder: (text, dueAt) => ipcRenderer.invoke("reminders:create", text, dueAt),
   createReminderFromText: (text) =>
     ipcRenderer.invoke("reminders:create-from-text", text),
-  createReminderFromVoice: (audioBase64, mimeType) =>
-    ipcRenderer.invoke("reminders:create-from-voice", audioBase64, mimeType),
+  createReminderFromVoice: (audioBase64, mimeType, durationSeconds) =>
+    ipcRenderer.invoke("reminders:create-from-voice", audioBase64, mimeType, durationSeconds),
   onInboxChanged: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("inbox:changed", listener);
