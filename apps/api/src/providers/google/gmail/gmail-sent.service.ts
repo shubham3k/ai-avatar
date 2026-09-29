@@ -28,6 +28,18 @@ export interface GmailSentService {
   listThreadMessages(refreshToken: string, threadId: string): Promise<ThreadMessageMeta[]>;
 }
 
+/**
+ * ADR-006 M6: email history for recall — one page of message ids for a
+ * Gmail search, and full messages (own text only, like sent mail).
+ */
+export interface GmailHistoryService {
+  listMessageIds(
+    refreshToken: string,
+    options: { query: string; pageToken: string | null; maxResults: number },
+  ): Promise<{ ids: string[]; nextPageToken: string | null }>;
+  getMessage(refreshToken: string, id: string): Promise<SentGmailMessage | null>;
+}
+
 function header(headers: gmail_v1.Schema$MessagePartHeader[] | undefined, name: string): string | null {
   return headers?.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? null;
 }
@@ -87,6 +99,58 @@ export function messageBodyText(payload: gmail_v1.Schema$MessagePart | undefined
   return html ? extractOwnText(htmlToText(html)) : null;
 }
 
+function toSentMessage(data: gmail_v1.Schema$Message, fallbackId: string): SentGmailMessage {
+  const headers = data.payload?.headers ?? undefined;
+  const date = header(headers, "Date");
+  const parsed = date ? new Date(date) : null;
+  return {
+    id: data.id ?? fallbackId,
+    threadId: data.threadId ?? "",
+    subject: header(headers, "Subject"),
+    from: header(headers, "From"),
+    to: [header(headers, "To"), header(headers, "Cc")].filter(Boolean).join(", ") || null,
+    date: parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : null,
+    snippet: data.snippet ?? null,
+    labels: data.labelIds ?? [],
+    internalDate: data.internalDate ?? null,
+    bodyText: messageBodyText(data.payload ?? undefined),
+  };
+}
+
+export function createGmailHistoryService(dependencies?: { oauth?: GoogleOAuthService }): GmailHistoryService {
+  const oauth = dependencies?.oauth ?? createGoogleOAuthService();
+  return {
+    async listMessageIds(refreshToken, options) {
+      const gmail = google.gmail({ version: "v1", auth: oauth.createAuthorizedClient(refreshToken) });
+      try {
+        const res = await gmail.users.messages.list({
+          userId: "me",
+          q: options.query,
+          maxResults: Math.max(1, Math.min(options.maxResults, 100)),
+          ...(options.pageToken ? { pageToken: options.pageToken } : {}),
+        });
+        return {
+          ids: (res.data.messages ?? []).flatMap((message) => (message.id ? [message.id] : [])),
+          nextPageToken: res.data.nextPageToken ?? null,
+        };
+      } catch (err) {
+        throw mapGoogleApiError(err, "Gmail");
+      }
+    },
+    async getMessage(refreshToken, id) {
+      const gmail = google.gmail({ version: "v1", auth: oauth.createAuthorizedClient(refreshToken) });
+      try {
+        const { data } = await gmail.users.messages.get({ userId: "me", id, format: "full" });
+        return toSentMessage(data, id);
+      } catch (err) {
+        const mapped = mapGoogleApiError(err, "Gmail");
+        if ((mapped as { statusCode?: number }).statusCode === 403) throw mapped;
+        return null;
+      }
+    },
+  };
+}
+
 export function createGmailSentService(dependencies?: { oauth?: GoogleOAuthService }): GmailSentService {
   const oauth = dependencies?.oauth ?? createGoogleOAuthService();
 
@@ -110,21 +174,7 @@ export function createGmailSentService(dependencies?: { oauth?: GoogleOAuthServi
         if (!ref.id) continue;
         try {
           const { data } = await gmail.users.messages.get({ userId: "me", id: ref.id, format: "full" });
-          const headers = data.payload?.headers ?? undefined;
-          const date = header(headers, "Date");
-          const parsed = date ? new Date(date) : null;
-          messages.push({
-            id: data.id ?? ref.id,
-            threadId: data.threadId ?? "",
-            subject: header(headers, "Subject"),
-            from: header(headers, "From"),
-            to: [header(headers, "To"), header(headers, "Cc")].filter(Boolean).join(", ") || null,
-            date: parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : null,
-            snippet: data.snippet ?? null,
-            labels: data.labelIds ?? [],
-            internalDate: data.internalDate ?? null,
-            bodyText: messageBodyText(data.payload ?? undefined),
-          });
+          messages.push(toSentMessage(data, ref.id));
         } catch (err) {
           const mapped = mapGoogleApiError(err, "Gmail");
           if ((mapped as { statusCode?: number }).statusCode === 403) throw mapped;

@@ -1,7 +1,7 @@
 # Project Handoff Document
 
 **Last Updated:** September 29, 2026
-**Phase Completed:** Phases 1–4.7 (foundation → Google OAuth/Gmail/Calendar → daily context → SQLite, single-process desktop, onboarding, secrets, auto-migrations, Windows packaging), the Sept 18–28 feature stretch (background sync, tray, reminders, dock UI), and **Zara milestones M0–M5** (see below).
+**Phase Completed:** Phases 1–4.7 (foundation → Google OAuth/Gmail/Calendar → daily context → SQLite, single-process desktop, onboarding, secrets, auto-migrations, Windows packaging), the Sept 18–28 feature stretch (background sync, tray, reminders, dock UI), and **Zara milestones M0–M6** (see below).
 
 **Current work — Zara, a local-first personal AI agent (design: `docs/decisions/ADR-006-zara-personal-agent.md`, read it first).** All Zara work is on git branch **`zara-agent`**, created from `main` after checkpoint `3a96d64`; merge back to `main` when the milestones are complete (user's instruction). Commits so far: M0 `d96f08a`, M1 `ca77fc2`, M2 `94e6181`, M3 `03b4efa`, M4 voice `30d7394`, M5 proactive `0e51869`, test-feedback fixes (memory across chats, Hindi/Hinglish transcription — see `git log`). Working tree clean at end of the Sept 29 session.
 
@@ -13,14 +13,32 @@
 | M3 memory, redaction, incognito, activity log + undo | ✅ in source, not yet user-tested |
 | M4 voice (hotkey Ctrl+Shift+Space, spoken replies, voice picker, hands-free, interrupt, Hindi/Hinglish) | ✅ in source, not yet user-tested (the real OpenAI voice needs the user's key) |
 | M5 proactive (briefings, pre-meeting summary, follow-ups, promises, held pop-ups, wrap-up) | ✅ in source, not yet user-tested (real sent-mail sync needs the user's Google account) |
-| **M6 recall (local index over email/chats/notes/`Documents\Zara`, notes, people memory)** | **next** |
-| M7 approved actions · M8 MCP · M9 routines | planned (ADR-006) |
+| M6 recall (local index over email/chats/notes/`Documents\Zara`, notes, people memory) | ✅ in source, not yet user-tested |
+| **M7 approved actions (Google re-consent, approval cards, email send with 30 s undo, calendar actions, writing style)** | **next** |
+| M8 MCP · M9 routines | planned (ADR-006) — the user wants M7–M9 built, then tests everything together |
 
-**How the user runs it right now:** dev mode, not the installer — `pnpm --filter @ai-agent/shared build`, `pnpm --filter @ai-agent/api build`, then `pnpm --filter @ai-agent/desktop electron:dev` (quit any installed copy first: both use port 4000). The last packaged `.exe` (Sept 28, 15:17) predates M1–M5; rebuild (`npm run package:win` in `apps/desktop`) **only when the user asks**.
+**How the user runs it right now:** dev mode, not the installer — `pnpm --filter @ai-agent/shared build`, `pnpm --filter @ai-agent/api build`, then `pnpm --filter @ai-agent/desktop electron:dev` (quit any installed copy first: both use port 4000). The last packaged `.exe` (Sept 28, 15:17) predates M1–M6; rebuild (`npm run package:win` in `apps/desktop`) **only when the user asks**.
 
 **Keys:** the OpenAI key goes in the app's **Settings → General → "AI provider (OpenAI)"** (encrypted in `%APPDATA%\@ai-agent\desktop\config.json`, shared by dev mode and the installed app). `apps/api/.env` has no OpenAI key (only Groq), so agent-side live tests run over Groq; a real OpenAI chat has **not** been verified yet. `.env.test` blanks all AI keys so tests never make billed calls.
 
 **Working rules with this user:** discuss before building new directions; never rebuild the `.exe` or commit unasked (commits on `zara-agent` per milestone are fine — the user approved that flow); after each milestone run typecheck + lint + all tests and a live check where possible.
+
+---
+
+## Addendum: Zara M6 — recall (September 30, 2026)
+
+On branch `zara-agent`. The user asked for M6–M9 to be built before testing everything together, and approved: `@huggingface/transformers` (local embeddings), `@modelcontextprotocol/sdk` (M8), downloading the search model `Xenova/multilingual-e5-small` (~130 MB on disk) and the filesystem MCP server for testing. Also added (small, pure JS): `unpdf` (PDF text) and `mammoth` (Word .docx text).
+
+- **Index** (`domain/recall/`): `RecallChunk` table (migration `zara_m6_recall`) — one row per chunk of an email, calendar event, chat, memory fact, note, or document, with a content hash (unchanged sources are never re-processed) and a float32 embedding. The **FTS5 keyword index** (`RecallChunkFts` + triggers) is created at runtime by `recall-store.ts` (Prisma would drop an unknown virtual table in a later migration); LIKE fallback if FTS5 is missing. Search = FTS5 bm25 + cosine over local embeddings, merged by reciprocal-rank fusion; meaning matches below 0.8 similarity are dropped (live: related 0.90, unrelated 0.74). User text is quoted into FTS queries (no operators). ~10–30 ms per search.
+- **Local model** (`embedder.ts`): `Xenova/multilingual-e5-small` (English/Hindi/Hinglish, q8, CPU via onnxruntime-node) loaded lazily; downloaded on first use to `RECALL_MODEL_DIR` (Electron sets `%APPDATA%\@ai-agent\desktop\models`); a failed load retries after a minute and keyword search keeps working meanwhile. Tests set `RECALL_DISABLE_EMBEDDINGS=1` and a temp `ZARA_DOCUMENTS_FOLDER` (never download, never touch real Documents). pnpm: `onnxruntime-node` / `protobufjs` install scripts set to `false` in `pnpm-workspace.yaml` (Windows binaries ship in the package; the script only fetches GPU builds) — pnpm 11 otherwise refuses to run.
+- **Sources:** email in the history window (default 1 month, 3 optional) — a **backfill** fetches message bodies (own text, quoted thread removed, ≤ 4,000 chars; `gmail.readonly`) one page (≤ 60 fetches) per pass until the window is covered, plus bodies of the last 3 days' mail each pass; promotions/social/spam/trash excluded. Calendar events (with attendees), chats, memory facts, and the **documents folder** (default `Documents\Zara`, created on first index with a `Notes` subfolder; .txt/.md/.pdf/.docx, ≤ 20 MB, text layer only).
+- **Background indexing:** `POST /recall/index` returns immediately; one pass at a time per process (`getRecallService()` singleton); runs on every sync (added to Check now, best effort) and after settings changes. Embeddings are computed last (≤ 3 min per pass).
+- **Chat tools:** `recall_search` (≤ 6 snippets of ≤ 400 chars with refs — only these leave the PC), `read_recall_item` (≤ 1,500 chars), `create_note` (Markdown file in `Notes`, never overwrites, logged with Undo = delete the file; not in incognito), `get_person_profile` (experimental, switch-off-able: email counts, last email, recent subjects, meetings, memory facts about them — computed locally, nothing stored). Prompt v7 tells Zara to use recall for the past/documents/people, cite the source briefly, offer reminders for dated tasks in notes, and treat documents as data.
+- **Settings → Recall tab** (`RecallSettings.tsx`; tabs now wrap to two rows): counts per source, model state ("Downloading the search model (about 120 MB, first time only)…", progress of meaning-indexing), "Update the index now", email history 1/3 months, documents on/off, folder shown with **Open folder** / **Change…** (native folder picker in the main process — the renderer never sends a path), people profiles on/off. API: `GET/PATCH /recall/settings`, `GET /recall/status`, `POST /recall/index`, `GET /recall/search?q=`.
+- **Tests:** API 705/705, desktop 238/238, typecheck + lint clean.
+- **Live check** (copy of `dev.db`, real model downloaded to scratch, no Gmail): indexed 13 emails, 11 events, 3 chats, a Markdown note, a .txt contract and a PDF; "monthly retainer amount" → the contract, "hotel limit per night" → the PDF, Hinglish "press kit kab bhejna hai" → the note, "important meeting voice agent" → the calendar event. An unchanged re-index pass took 55 ms.
+- **Packaging note for the next `.exe` build:** the API's runtime deps now include onnxruntime-node (native DLLs) — `prepare-api-resources.mjs` npm-installs them into `resources/api` (outside the asar), which should work, but the installer grows; the model itself is downloaded on first use, not bundled.
+- **Not verified yet (needs the user):** the month-of-email backfill against their real Gmail, their own documents, recall answers phrased by OpenAI.
 
 ---
 

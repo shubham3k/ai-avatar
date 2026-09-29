@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { config } from "dotenv";
@@ -45,3 +46,8 @@ if (!looksLikeTestSqliteFile || testDbUrl.includes("dev.db")) {
 }
 
 process.env.NODE_ENV = "test";
+
+// ADR-006 M6: tests never download the local search model and never create
+// folders in the real Documents folder.
+process.env.RECALL_DISABLE_EMBEDDINGS = "1";
+process.env.ZARA_DOCUMENTS_FOLDER = join(tmpdir(), `zara-test-docs-${process.pid}`);

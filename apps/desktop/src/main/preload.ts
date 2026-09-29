@@ -54,6 +54,13 @@ export interface DesktopApiBridge {
   saveChatHotkey(accelerator: string): Promise<unknown>;
   /** Fires when the global Zara shortcut is pressed; returns an unsubscribe function. */
   onHotkey(callback: () => void): () => void;
+  /** ADR-006 (M6): recall. Each resolves `{ ok, value | message }`. */
+  recallGetSettings(): Promise<unknown>;
+  recallUpdateSettings(patch: Record<string, unknown>): Promise<unknown>;
+  recallStatus(): Promise<unknown>;
+  recallIndex(): Promise<unknown>;
+  recallChooseFolder(): Promise<unknown>;
+  recallOpenFolder(): Promise<unknown>;
   /** ADR-006 (M5): proactive settings, briefing now, hold state, briefing delivery. */
   proactiveGetSettings(): Promise<unknown>;
   proactiveUpdateSettings(patch: Record<string, unknown>): Promise<unknown>;
@@ -127,6 +134,12 @@ const bridge: DesktopApiBridge = {
     ipcRenderer.on("zara:hotkey", listener);
     return () => ipcRenderer.removeListener("zara:hotkey", listener);
   },
+  recallGetSettings: () => ipcRenderer.invoke("recall:get-settings"),
+  recallUpdateSettings: (patch) => ipcRenderer.invoke("recall:update-settings", patch),
+  recallStatus: () => ipcRenderer.invoke("recall:status"),
+  recallIndex: () => ipcRenderer.invoke("recall:index"),
+  recallChooseFolder: () => ipcRenderer.invoke("recall:choose-folder"),
+  recallOpenFolder: () => ipcRenderer.invoke("recall:open-folder"),
   proactiveGetSettings: () => ipcRenderer.invoke("proactive:get-settings"),
   proactiveUpdateSettings: (patch) => ipcRenderer.invoke("proactive:update-settings", patch),
   proactiveBriefingNow: (kind) => ipcRenderer.invoke("proactive:briefing-now", kind),

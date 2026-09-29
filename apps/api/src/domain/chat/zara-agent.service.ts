@@ -17,6 +17,8 @@ import { createDefaultLlmProvider } from "../llm-usage.service.js";
 import { createReminderParsingService, type ReminderParsingService } from "../reminder-parsing.service.js";
 import { createActivityService, type ActivityService } from "../activity/activity.service.js";
 import { createMemoryService, MEMORY_CONTEXT_LIMIT, type MemoryService } from "../memory/memory.service.js";
+import { createPeopleService, type PeopleService } from "../recall/people.service.js";
+import { getRecallService, type RecallService } from "../recall/recall.service.js";
 import { isExplicitRememberRequest } from "./remember-intent.js";
 import { buildZaraSystemPrompt } from "./zara-prompt.js";
 import { findTool, MEMORY_WRITE_TOOLS, ZARA_TOOLS, type ToolContext } from "./zara-tools.js";
@@ -102,8 +104,13 @@ export function createZaraAgentService(dependencies?: {
   reminderParser?: ReminderParsingService;
   memory?: MemoryService;
   activity?: ActivityService;
+  recall?: RecallService;
+  people?: PeopleService;
 }) {
   const prisma = dependencies?.prisma ?? defaultPrisma;
+  // Shared per process: one search model and one indexing pass at a time.
+  const recall = dependencies?.recall ?? getRecallService();
+  const people = dependencies?.people ?? createPeopleService({ prisma });
   const memory = dependencies?.memory ?? createMemoryService({ prisma });
   const activity = dependencies?.activity ?? createActivityService({ prisma });
   const provider = dependencies?.provider ?? createDefaultLlmProvider();
@@ -165,6 +172,8 @@ export function createZaraAgentService(dependencies?: {
         parseReminder: (reminderText, at) => reminderParser.parse(reminderText, at),
         memory,
         incognito,
+        recall,
+        people,
         // Logged with whichever provider was answering when Zara acted.
         recordActivity: (entry) => activity.record(userId, { ...entry, provider: answeredBy }),
       };

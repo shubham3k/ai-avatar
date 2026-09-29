@@ -74,6 +74,11 @@ export interface ApiClient {
     durationSeconds?: number,
     script?: "latin" | "devanagari",
   ): Promise<unknown>;
+  /** ADR-006 (M6): recall — local search index settings, status, background indexing. */
+  recallSettings(): Promise<unknown>;
+  updateRecallSettings(patch: Record<string, unknown>): Promise<unknown>;
+  recallStatus(): Promise<unknown>;
+  recallIndex(): Promise<unknown>;
   /** ADR-006 (M5): proactive settings, briefings, sent-mail follow-ups/promises. */
   proactiveSettings(): Promise<unknown>;
   updateProactiveSettings(patch: Record<string, unknown>): Promise<unknown>;
@@ -236,6 +241,18 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
         }),
       });
     },
+    recallSettings() {
+      return request("/recall/settings");
+    },
+    updateRecallSettings(patch) {
+      return request("/recall/settings", { method: "PATCH", body: JSON.stringify(patch) });
+    },
+    recallStatus() {
+      return request("/recall/status");
+    },
+    recallIndex() {
+      return request("/recall/index", { method: "POST", body: "{}" });
+    },
     proactiveSettings() {
       return request("/proactive/settings");
     },
@@ -301,6 +318,8 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
       // ADR-006 M5: sent mail → promise reminders + follow-up nudges. Best
       // effort: a problem here (e.g. the AI is down) mustn't stop the sync.
       await request("/proactive/sent-mail", { method: "POST", body: "{}" }).catch(() => undefined);
+      // ADR-006 M6: refresh the local search index in the background (returns at once).
+      await request("/recall/index", { method: "POST", body: "{}" }).catch(() => undefined);
       await request("/integrations/google/calendar/sync", { method: "POST", body: "{}" });
       await request("/integrations/google/calendar/detect-signals", {
         method: "POST",

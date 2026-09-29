@@ -129,6 +129,7 @@ describe("desktop api client", () => {
       .mockResolvedValueOnce(okResponse({ fetched: 1, created: 1, updated: 0 })) // gmail sync
       .mockResolvedValueOnce(okResponse({ created: 0 })) // gmail detect-signals
       .mockResolvedValueOnce(okResponse({ synced: 1, analyzed: 1, promiseReminders: 0, followUps: 0 })) // M5 sent mail
+      .mockResolvedValueOnce(okResponse({ started: true })) // M6 recall index
       .mockResolvedValueOnce(okResponse({ fetched: 1, created: 1, updated: 0 })) // calendar sync
       .mockResolvedValueOnce(okResponse({ created: 0 })) // calendar detect-signals
       .mockResolvedValueOnce(okResponse(evaluateResult)); // assistant evaluate
@@ -141,6 +142,7 @@ describe("desktop api client", () => {
       "http://localhost:4000/api/v1/integrations/google/gmail/sync",
       "http://localhost:4000/api/v1/integrations/google/gmail/detect-signals",
       "http://localhost:4000/api/v1/proactive/sent-mail",
+      "http://localhost:4000/api/v1/recall/index",
       "http://localhost:4000/api/v1/integrations/google/calendar/sync",
       "http://localhost:4000/api/v1/integrations/google/calendar/detect-signals",
       "http://localhost:4000/api/v1/assistant/evaluate",
@@ -149,7 +151,7 @@ describe("desktop api client", () => {
     expect(result).toEqual(evaluateResult);
   });
 
-  it("checkNow carries on when the sent-mail step fails (M5, best effort)", async () => {
+  it("checkNow carries on when the sent-mail and recall steps fail (M5/M6, best effort)", async () => {
     const fail = { ok: false, status: 502, json: async () => ({ error: { code: "provider_error", message: "AI down" } }) };
     const fetchImpl = vi
       .fn<FetchLike>()
@@ -157,13 +159,14 @@ describe("desktop api client", () => {
       .mockResolvedValueOnce(okResponse({}))
       .mockResolvedValueOnce(okResponse({}))
       .mockResolvedValueOnce(fail)
+      .mockResolvedValueOnce(fail)
       .mockResolvedValueOnce(okResponse({}))
       .mockResolvedValueOnce(okResponse({}))
       .mockResolvedValueOnce(okResponse({ results: [] }));
     const client = createApiClient("http://localhost:4000", fetchImpl);
 
     await expect(client.checkNow()).resolves.toEqual({ results: [] });
-    expect(fetchImpl).toHaveBeenCalledTimes(7);
+    expect(fetchImpl).toHaveBeenCalledTimes(8);
   });
 
   it("checkNow stops and throws at the first step that fails, without calling later steps", async () => {

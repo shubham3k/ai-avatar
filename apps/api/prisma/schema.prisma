@@ -319,3 +319,40 @@ model ProactiveSettings {
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 }
+
+// ADR-006 M6: the local search index — one row per chunk of an email,
+// event, chat, memory fact, note, or document. The keyword index
+// (FTS5 table "RecallChunkFts") is created at runtime by
+// domain/recall/recall-store.ts, not here, so Prisma migrations never see it.
+model RecallChunk {
+  id          String    @id @default(cuid())
+  userId      String
+  sourceType  String // email | event | chat | memory | note | document
+  sourceId    String // row id, or a file's path relative to the documents folder
+  chunkIndex  Int
+  title       String
+  text        String
+  sourceDate  DateTime?
+  url         String?
+  contentHash String // of the whole source — unchanged sources aren't re-indexed
+  embedding   Bytes? // float32 vector from the local model; null until embedded
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([userId, sourceType, sourceId, chunkIndex])
+  @@index([userId, sourceType, sourceId])
+}
+
+model RecallSettings {
+  id                  String    @id @default(cuid())
+  userId              String    @unique
+  documentsFolder     String? // null = Documents\Zara
+  documentsEnabled    Boolean   @default(true)
+  peopleEnabled       Boolean   @default(true) // experimental people profiles
+  emailHistoryDays    Int       @default(30)
+  backfillPageToken   String?
+  backfillDoneForDays Int? // emailHistoryDays value the backfill finished for
+  lastIndexedAt       DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}

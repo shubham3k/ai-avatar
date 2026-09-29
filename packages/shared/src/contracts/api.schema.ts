@@ -591,3 +591,47 @@ export const sentMailProcessResponseSchema = z.object({
   promiseReminders: z.number().int(),
   followUps: z.number().int(),
 });
+
+// ADR-006 (M6): recall — the local search index.
+export const recallSourceTypeSchema = z.enum(["email", "event", "chat", "memory", "note", "document"]);
+export const recallSettingsSchema = z.object({
+  documentsFolder: z.string(),
+  documentsEnabled: z.boolean(),
+  peopleEnabled: z.boolean(),
+  emailHistoryDays: z.number().int(),
+});
+export const updateRecallSettingsSchema = z.object({
+  // An absolute folder path chosen with the desktop's folder picker; null = back to Documents\Zara.
+  documentsFolder: z.string().min(3).max(500).nullable().optional(),
+  documentsEnabled: z.boolean().optional(),
+  peopleEnabled: z.boolean().optional(),
+  emailHistoryDays: z.union([z.literal(30), z.literal(90)]).optional(),
+});
+export const recallStatusSchema = z.object({
+  state: z.enum(["idle", "indexing"]),
+  lastIndexedAt: z.string().nullable(),
+  lastError: z.string().nullable(),
+  model: z.enum(["idle", "loading", "ready", "failed"]),
+  modelError: z.string().nullable(),
+  sources: z.record(z.number()),
+  chunks: z.number().int(),
+  embedded: z.number().int(),
+  emailHistoryComplete: z.boolean(),
+});
+export const recallIndexResponseSchema = z.object({ started: z.boolean() });
+export const recallSearchQuerySchema = z.object({
+  q: z.string().trim().min(1).max(300),
+  limit: z.coerce.number().int().min(1).max(20).optional(),
+});
+export const recallSearchResponseSchema = z.object({
+  results: z.array(
+    z.object({
+      id: z.string(),
+      sourceType: recallSourceTypeSchema,
+      title: z.string(),
+      snippet: z.string(),
+      sourceDate: z.string().nullable(),
+      url: z.string().nullable(),
+    }),
+  ),
+});

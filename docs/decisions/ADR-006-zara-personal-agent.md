@@ -124,14 +124,14 @@ Embedded API    agent runtime (loop: model → tool call → validated execution
 | 3 ✅ | Memory + activity log | Facts, memory page, incognito, redaction, activity log with undo (`03b4efa`) |
 | 4 ✅ | Voice | Hotkey, spoken replies, voice picker, hands-free, interruption, Hindi/Hinglish |
 | 5 ✅ | Proactive | Briefings, pre-meeting summary, follow-ups, promises, held pop-ups, wrap-up |
-| 6 | Recall | Local index over email/chats/notes/`Documents\Zara`, notes, people memory (experimental) |
+| 6 ✅ | Recall | Local index over email/chats/notes/`Documents\Zara`, notes, people memory (experimental) |
 | 7 | Actions | Google re-consent, approval cards, email send with 30 s undo, calendar actions, writing style |
 | 8 | MCP | Add-connection screen, strict trust, servers in the order above |
 | 9 | Routines | Plain-language routines, Routines page |
 
 Development happens on `zara-agent`; it is merged into `main` when complete.
 
-### Implementation notes (deviations found during M1–M5)
+### Implementation notes (deviations found during M1–M6)
 
 - **`create_reminder` takes the user's own words**, not structured time fields: the tool hands the request to the dedicated reminder parser (`reminder-parsing.service.ts`, ADR-005). Live testing showed the chat model — especially the Groq fallback — filling time fields unreliably (e.g. turning "kal subah 9 baje" into 1,079 relative minutes). A per-message dedupe guard prevents repeated calls creating duplicates.
 - **Redaction is enforced at the provider boundary** (`providers/llm/redacting-provider.ts`, wrapping primary and fallback in `createLlmProvider`) rather than per feature, so no AI request can bypass it. Audio sent for transcription can't be redacted; its text output is redacted wherever it's used next.
@@ -141,6 +141,7 @@ Development happens on `zara-agent`; it is merged into `main` when complete.
 - **M4 voice:** default OpenAI voice `marin`; the hotkey's first press opens the chat, a press while it's open toggles the mic. Replies are spoken sentence by sentence as they stream (lower latency than waiting for the whole reply). **TTS has no Groq fallback** (Groq's voices can't speak Hindi) — a local Windows voice takes over and the reason is shown once. Hands-free is volume-based voice-activity detection, active only while the chat is open and off after 60 s of quiet — not a wake word, which stays on the later list. Interrupting while Zara speaks needs louder, ≥0.4 s speech so her own voice through speakers doesn't cut her off; headphones avoid the issue.
 - **M5 proactive:** "first unlock of the day" is implemented as *the first time after 05:00 the user is at the PC* (unlock, resume, app start, or keyboard/mouse activity within 2 minutes) — a PC left unlocked overnight still gets its briefing when the user sits down, not at 05:00 to an empty room. The briefing and wrap-up are saved as chats ("Morning briefing · Tue 29 Sep") so the user can ask follow-ups; "spoken" reads it aloud without opening the panel. Sent mail (last 14 days, the user's own text trimmed to 4,000 chars) is analysed once per email; **the model reports the kind of deadline, code resolves the date** (same lesson as ADR-005 — live testing showed Groq resolving "by Friday" wrongly 1 in 3 times); "by <weekday>" written on that weekday means the following week. Follow-ups only for sent emails the AI judged to expect a reply, confirmed against the Gmail thread before nudging. Busy detection = Windows' own notification state (full-screen / presentation) + another app using the mic or camera (= call), read by a hidden PowerShell helper every 5 s; urgent = high/critical priority (a meeting within 5 minutes). Settings live in the local DB (`ProactiveSettings`) because both the API and the desktop scheduler need them.
 - **After the user's first test:** an explicit "remember…" (incl. Hinglish "yaad rakhna", "mera naam") makes the first model turn `tool_choice: "required"` — the model had replied "I'll remember for this conversation" without saving. Transcription moved to `gpt-transcribe` with `languages: [en, hi]` and a style prompt in the user's chosen script (Settings → Voice: Roman/Hinglish by default, or Devanagari); Groq backup uses `whisper-large-v3`.
+- **M6 recall:** no `sqlite-vec` — Prisma can't load SQLite extensions, so embeddings are float32 BLOBs searched by brute-force cosine in JS (fine at this scale: ~10–30 ms). Keywords use SQLite's built-in FTS5, created at runtime (outside Prisma migrations). The local model is `Xenova/multilingual-e5-small` via transformers.js/onnxruntime-node, downloaded on first use (not bundled). Indexing is incremental by content hash and runs in the background on each sync. People profiles are computed on demand, never stored. Notes are Markdown files in `Documents\Zara\Notes`; Zara can write them (`create_note`, undoable). PDF/Word text via `unpdf`/`mammoth`; scanned PDFs are out of scope.
 
 ## Consequences
 

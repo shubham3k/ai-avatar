@@ -4,6 +4,8 @@ import { resizeOverlayToContent } from "../windows/overlay-window.js";
 
 export interface ShellLike {
   openExternal(url: string): Promise<void>;
+  /** M6: open the documents folder in Explorer. Resolves "" on success, else an error message. */
+  openPath?(path: string): Promise<string>;
 }
 
 /** What chat IPC calls resolve with — a curated message on failure, never a raw error. */
@@ -71,6 +73,25 @@ const PROACTIVE_FIELDS: Record<string, "boolean" | "number" | "string"> = {
   quietHoursStart: "string",
   quietHoursEnd: "string",
 };
+
+/** M6: recall settings patch from the renderer — toggles and the history length only (folders come from the picker). */
+export function parseRecallPatch(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return null;
+  for (const [key, field] of entries) {
+    if (key === "documentsEnabled" || key === "peopleEnabled") {
+      if (typeof field !== "boolean") return null;
+    } else if (key === "emailHistoryDays") {
+      if (field !== 30 && field !== 90) return null;
+    } else if (key === "documentsFolder") {
+      if (field !== null) return null; // only "reset to default"
+    } else {
+      return null;
+    }
+  }
+  return Object.fromEntries(entries);
+}
 
 /** M5: a settings patch from the renderer — known fields with the right types only (the API validates values). */
 export function parseProactivePatch(value: unknown): Record<string, unknown> | null {
@@ -158,6 +179,8 @@ export function registerIpc(options: {
   saveOpenAiModelAndRestart: (model: string) => void;
   /** Same restart-required rationale as the Groq key — see docs/SINGLE_PROCESS_DESKTOP.md. */
   saveGoogleCredentialsAndRestart: (clientId: string, clientSecret: string) => void;
+  /** M6: native folder picker for the documents folder; null when cancelled. */
+  chooseFolder?: () => Promise<string | null>;
   /** M5: whether pop-ups are held right now (full-screen, presentation, call, quiet hours). */
   getHoldState: () => { holding: boolean; reason: string | null };
   /** M5: settings changed — re-evaluate holds right away. */
@@ -189,6 +212,7 @@ export function registerIpc(options: {
     changeChatHotkey,
     getHoldState,
     onProactiveSettingsChanged,
+    chooseFolder,
   } = options;
 
   ipcMain.handle("inbox:get", async () => api.fetchInbox());
@@ -248,6 +272,30 @@ export function registerIpc(options: {
     chatHotkey: getChatHotkey(),
     hold: getHoldState(),
   }));
+
+  // ADR-006 (M6): recall settings, status, re-index, documents folder.
+  ipcMain.handle("recall:get-settings", async () => settle(() => api.recallSettings(), "Couldn't load recall settings."));
+  ipcMain.handle("recall:status", async () => settle(() => api.recallStatus(), "Couldn't load the index status."));
+  ipcMain.handle("recall:index", async () => settle(() => api.recallIndex(), "Couldn't start indexing."));
+  ipcMain.handle("recall:update-settings", async (_event, patch: unknown) => {
+    const parsed = parseRecallPatch(patch);
+    if (!parsed) return { ok: false, message: "Those settings aren't valid." } satisfies ChatActionResult<never>;
+    return settle(() => api.updateRecallSettings(parsed), "Couldn't save that.");
+  });
+  // The folder comes from the native picker in the main process — the renderer never sends a path.
+  ipcMain.handle("recall:choose-folder", async () => {
+    const folder = (await chooseFolder?.()) ?? null;
+    if (!folder) return { ok: true, value: null } satisfies ChatActionResult<null>;
+    return settle(() => api.updateRecallSettings({ documentsFolder: folder }), "Couldn't use that folder.");
+  });
+  ipcMain.handle("recall:open-folder", async () => {
+    const result = await settle(() => api.recallSettings(), "Couldn't find the folder.");
+    if (!result.ok) return result;
+    const folder = (result.value as { documentsFolder?: unknown }).documentsFolder;
+    if (typeof folder !== "string" || !shell.openPath) return { ok: false, message: "Couldn't open the folder." };
+    const error = await shell.openPath(folder);
+    return error ? { ok: false, message: "Couldn't open the folder." } : { ok: true, value: null };
+  });
 
   // ADR-006 (M5): proactive settings and "show the briefing now".
   ipcMain.handle("proactive:get-settings", async () => settle(() => api.proactiveSettings(), "Couldn't load these settings."));

@@ -5,6 +5,10 @@ import type { RecordActivityInput } from "../activity/activity.service.js";
 import { MEMORY_CATEGORIES, MEMORY_FACT_MAX_LENGTH, type MemoryService } from "../memory/memory.service.js";
 import type { ReminderParseOutcome } from "../reminder-parsing.service.js";
 import { REMINDER_TEXT_MAX_LENGTH } from "../reminders.constants.js";
+import { writeNote } from "../recall/notes.js";
+import type { PeopleService } from "../recall/people.service.js";
+import { RECALL_SOURCE_TYPES } from "../recall/recall-store.js";
+import type { RecallService } from "../recall/recall.service.js";
 
 /**
  * Zara's tools (ADR-006, M2): a static, typed list — never a dynamic
@@ -34,6 +38,10 @@ export interface ToolContext {
   recordActivity: (entry: RecordActivityInput) => Promise<void>;
   /** Incognito chat (M3): nothing is learned — memory-writing tools refuse. */
   incognito: boolean;
+  /** M6: local search over email, calendar, chats, memory, notes, documents. Optional so older tests don't need it. */
+  recall?: RecallService;
+  /** M6: people profiles (experimental). */
+  people?: PeopleService;
 }
 
 export interface ZaraTool<Schema extends z.ZodTypeAny = z.ZodTypeAny> {
@@ -444,6 +452,137 @@ const searchChats = defineTool({
   },
 });
 
+const SOURCE_LABELS: Record<string, string> = {
+  email: "email",
+  event: "calendar",
+  chat: "past chat",
+  memory: "memory",
+  note: "note",
+  document: "document",
+};
+
+const recallSearch = defineTool({
+  tier: "read",
+  status: "Searching your emails, notes and documents…",
+  definition: {
+    name: "recall_search",
+    description:
+      "Search everything the user has on this PC — emails (last month or more), calendar, past chats with you, your memory, their notes and their documents folder — by words or meaning, in English, Hindi or Hinglish. Use it for questions about the past, documents, notes, or anything you don't already know. Returns short snippets with a ref; call read_recall_item for more of one.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What to look for, in the user's own words." },
+        sources: {
+          type: "array",
+          items: { type: "string", enum: [...RECALL_SOURCE_TYPES] },
+          description: "Limit to some sources; omit to search everything.",
+        },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  schema: z.object({
+    query: z.string().trim().min(1).max(300),
+    sources: z.array(z.enum(RECALL_SOURCE_TYPES as [string, ...string[]])).max(6).optional(),
+  }),
+  async run(args, { recall, userId }) {
+    if (!recall) return { error: "Search isn't available right now." };
+    const hits = await recall.search(userId, args.query, {
+      ...(args.sources ? { types: args.sources as (typeof RECALL_SOURCE_TYPES)[number][] } : {}),
+      limit: 6,
+    });
+    if (hits.length === 0) return { results: [], note: "Nothing found. Try other words, or check Settings → Recall." };
+    return {
+      results: hits.map((hit) => ({
+        ref: hit.id,
+        source: SOURCE_LABELS[hit.sourceType] ?? hit.sourceType,
+        title: hit.title,
+        when: hit.sourceDate ? formatLocalDateTime(hit.sourceDate) : null,
+        snippet: hit.text.slice(0, 400),
+      })),
+    };
+  },
+});
+
+const readRecallItem = defineTool({
+  tier: "read",
+  status: "Reading…",
+  definition: {
+    name: "read_recall_item",
+    description: "Read more of one recall_search result (by its ref).",
+    parameters: {
+      type: "object",
+      properties: { ref: { type: "string" } },
+      required: ["ref"],
+      additionalProperties: false,
+    },
+  },
+  schema: z.object({ ref: z.string().min(1).max(100) }),
+  async run(args, { recall, userId }) {
+    const chunk = await recall?.store.chunk(userId, args.ref);
+    if (!chunk) return { error: "That item isn't in the index any more." };
+    return {
+      source: SOURCE_LABELS[chunk.sourceType] ?? chunk.sourceType,
+      title: chunk.title,
+      when: chunk.sourceDate ? formatLocalDateTime(chunk.sourceDate) : null,
+      text: chunk.text.slice(0, 1500),
+    };
+  },
+});
+
+const createNote = defineTool({
+  tier: "local_write",
+  status: "Writing a note…",
+  definition: {
+    name: "create_note",
+    description:
+      "Save a note as a Markdown file in the user's Notes folder (Documents\\Zara\\Notes). Use when the user asks you to write something down, draft notes, or keep a list. Not for short facts about the user — those go in memory.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Short title, used as the file name." },
+        content: { type: "string", description: "The note, in Markdown." },
+      },
+      required: ["title", "content"],
+      additionalProperties: false,
+    },
+  },
+  schema: z.object({ title: z.string().trim().min(1).max(120), content: z.string().trim().min(1).max(20_000) }),
+  async run(args, { recall, userId, incognito, recordActivity, now }) {
+    if (incognito) return { error: "This is an incognito chat — nothing is saved." };
+    if (!recall) return { error: "Notes aren't available right now." };
+    const settings = await recall.settings(userId);
+    const path = await writeNote(settings.documentsFolder, args.title, args.content, now);
+    await recordActivity({ kind: "note_created", summary: `Wrote the note "${args.title}"`, undo: { path } });
+    recall.start(userId);
+    return { saved: true, file: path };
+  },
+});
+
+const getPersonProfile = defineTool({
+  tier: "read",
+  status: "Looking them up…",
+  definition: {
+    name: "get_person_profile",
+    description:
+      "What the user's own email and calendar say about someone: how often they email, recent subjects, upcoming meetings, and what you remember about them. Use for 'who is X?', 'when did I last talk to X?', 'prepare me for my call with X'.",
+    parameters: {
+      type: "object",
+      properties: { name: { type: "string", description: "Their name or email address." } },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  schema: z.object({ name: z.string().trim().min(2).max(120) }),
+  async run(args, { people, recall, userId, now }) {
+    if (!people || !recall) return { error: "People profiles aren't available right now." };
+    if (!(await recall.settings(userId)).peopleEnabled) return { error: "People profiles are switched off in Settings → Recall." };
+    const profile = await people.profile(userId, args.name, now);
+    return profile ?? { error: `No one called "${args.name}" in the last 3 months of email or calendar.` };
+  },
+});
+
 export const ZARA_TOOLS: readonly ZaraTool[] = [
   getCalendarEvents,
   searchEmails,
@@ -455,10 +594,14 @@ export const ZARA_TOOLS: readonly ZaraTool[] = [
   updateFact,
   forgetFact,
   searchChats,
+  recallSearch,
+  readRecallItem,
+  createNote,
+  getPersonProfile,
 ];
 
-/** Tools that write memory — not offered at all in incognito chats. */
-export const MEMORY_WRITE_TOOLS = new Set(["remember_fact", "update_fact", "forget_fact"]);
+/** Tools that write memory or files — not offered at all in incognito chats. */
+export const MEMORY_WRITE_TOOLS = new Set(["remember_fact", "update_fact", "forget_fact", "create_note"]);
 
 export function findTool(name: string): ZaraTool | undefined {
   return ZARA_TOOLS.find((tool) => tool.definition.name === name);

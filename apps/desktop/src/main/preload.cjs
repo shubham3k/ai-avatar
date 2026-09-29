@@ -57,6 +57,12 @@ const bridge = {
     ipcRenderer.on("zara:hotkey", listener);
     return () => ipcRenderer.removeListener("zara:hotkey", listener);
   },
+  recallGetSettings: () => ipcRenderer.invoke("recall:get-settings"),
+  recallUpdateSettings: (patch) => ipcRenderer.invoke("recall:update-settings", patch),
+  recallStatus: () => ipcRenderer.invoke("recall:status"),
+  recallIndex: () => ipcRenderer.invoke("recall:index"),
+  recallChooseFolder: () => ipcRenderer.invoke("recall:choose-folder"),
+  recallOpenFolder: () => ipcRenderer.invoke("recall:open-folder"),
   proactiveGetSettings: () => ipcRenderer.invoke("proactive:get-settings"),
   proactiveUpdateSettings: (patch) => ipcRenderer.invoke("proactive:update-settings", patch),
   proactiveBriefingNow: (kind) => ipcRenderer.invoke("proactive:briefing-now", kind),

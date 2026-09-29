@@ -2,6 +2,7 @@ import { join } from "node:path";
 import {
   app,
   BrowserWindow,
+  dialog,
   globalShortcut,
   ipcMain,
   Menu,
@@ -69,6 +70,8 @@ app.whenReady().then(async () => {
 
   const config = loadConfig();
   const userDataDir = app.getPath("userData");
+  // ADR-006 M6: the local search model (~120 MB) is downloaded once, into app data.
+  if (!process.env.RECALL_MODEL_DIR) process.env.RECALL_MODEL_DIR = join(userDataDir, "models");
   const userConfig = loadUserConfig(userDataDir, safeStorage);
 
   // A Groq key saved through the settings UI takes precedence over
@@ -252,6 +255,11 @@ app.whenReady().then(async () => {
       app.exit(0);
     },
     getHoldState: () => proactive?.hold() ?? { holding: false, reason: null },
+    chooseFolder: async () => {
+      const options = { title: "Choose the folder Zara should read", properties: ["openDirectory" as const, "createDirectory" as const] };
+      const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
     onProactiveSettingsChanged: () => proactive?.userReturned(),
     getChatHotkey: () => hotkeys?.current() ?? null,
     changeChatHotkey: (accelerator) => {

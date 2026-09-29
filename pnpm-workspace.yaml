@@ -7,6 +7,9 @@ allowBuilds:
   electron: true
   electron-winstaller: true
   esbuild: true
+  # Windows binaries ship inside the package; its install script only fetches optional GPU builds (M6).
+  onnxruntime-node: false
   prisma: true
+  protobufjs: false
   sharp: true
   unrs-resolver: true

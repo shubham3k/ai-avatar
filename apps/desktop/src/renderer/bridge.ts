@@ -50,6 +50,13 @@ interface DesktopApiBridge {
   chatSpeak?(text: string, voice: string): Promise<unknown>;
   saveChatHotkey?(accelerator: string): Promise<unknown>;
   onHotkey?(callback: () => void): () => void;
+  /** ADR-006 (M6). Optional so older test doubles still type-check. */
+  recallGetSettings?(): Promise<unknown>;
+  recallUpdateSettings?(patch: Record<string, unknown>): Promise<unknown>;
+  recallStatus?(): Promise<unknown>;
+  recallIndex?(): Promise<unknown>;
+  recallChooseFolder?(): Promise<unknown>;
+  recallOpenFolder?(): Promise<unknown>;
   /** ADR-006 (M5). Optional so older test doubles still type-check. */
   proactiveGetSettings?(): Promise<unknown>;
   proactiveUpdateSettings?(patch: Record<string, unknown>): Promise<unknown>;

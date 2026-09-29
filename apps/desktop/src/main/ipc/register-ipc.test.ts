@@ -5,6 +5,7 @@ import {
   OPENAI_MODEL_CHOICES,
   parseChatHistory,
   parseProactivePatch,
+  parseRecallPatch,
   parseSpeakRequest,
   settle,
   toReminderCreateResult,
@@ -129,5 +130,19 @@ describe("parseProactivePatch (M5)", () => {
     expect(parseProactivePatch({})).toBeNull();
     expect(parseProactivePatch([1])).toBeNull();
     expect(parseProactivePatch(null)).toBeNull();
+  });
+});
+
+describe("parseRecallPatch (M6)", () => {
+  it("allows toggles, 1 or 3 months, and resetting the folder", () => {
+    expect(parseRecallPatch({ peopleEnabled: false, emailHistoryDays: 90 })).toEqual({ peopleEnabled: false, emailHistoryDays: 90 });
+    expect(parseRecallPatch({ documentsFolder: null })).toEqual({ documentsFolder: null });
+  });
+
+  it("never takes a folder path from the renderer, or odd values", () => {
+    expect(parseRecallPatch({ documentsFolder: "C:\Windows" })).toBeNull();
+    expect(parseRecallPatch({ emailHistoryDays: 45 })).toBeNull();
+    expect(parseRecallPatch({ backfillPageToken: "x" })).toBeNull();
+    expect(parseRecallPatch({})).toBeNull();
   });
 });

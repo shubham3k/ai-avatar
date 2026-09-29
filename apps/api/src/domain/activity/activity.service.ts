@@ -2,6 +2,7 @@ import type { ActivityEntry, PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { conflictError, notFoundError } from "../../lib/errors.js";
 import { prisma as defaultPrisma } from "../../lib/prisma.js";
+import { deleteCreatedNote } from "../recall/notes.js";
 
 /**
  * Activity log (ADR-006 §4): everything Zara did, with the data needed to
@@ -13,9 +14,11 @@ export type ActivityKind =
   | "reminder_deleted"
   | "memory_saved"
   | "memory_updated"
-  | "memory_deleted";
+  | "memory_deleted"
+  | "note_created";
 
 const undoSchemas = {
+  note_created: z.object({ path: z.string() }),
   reminder_created: z.object({ reminderId: z.string() }),
   reminder_deleted: z.object({ text: z.string(), dueAt: z.string(), remindAt: z.string().nullable() }),
   memory_saved: z.object({ factId: z.string() }),
@@ -92,6 +95,11 @@ export function createActivityService(dependencies?: { prisma?: PrismaClient }) 
       case "memory_deleted": {
         const { content, category } = undoSchemas.memory_deleted.parse(raw);
         await prisma.memoryFact.create({ data: { userId, content, category } });
+        return;
+      }
+      case "note_created": {
+        const { path } = undoSchemas.note_created.parse(raw);
+        if (!(await deleteCreatedNote(path))) throw conflictError("That note is already gone.");
         return;
       }
     }
