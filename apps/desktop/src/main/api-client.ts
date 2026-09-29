@@ -68,7 +68,12 @@ export interface ApiClient {
   /** ADR-006 (M2): Zara chat — past conversations, a conversation's messages, and speech → text for the chat box. */
   listConversations(): Promise<unknown>;
   getConversationMessages(conversationId: string): Promise<unknown>;
-  transcribe(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
+  transcribe(
+    audioBase64: string,
+    mimeType: string,
+    durationSeconds?: number,
+    script?: "latin" | "devanagari",
+  ): Promise<unknown>;
   /** ADR-006 (M5): proactive settings, briefings, sent-mail follow-ups/promises. */
   proactiveSettings(): Promise<unknown>;
   updateProactiveSettings(patch: Record<string, unknown>): Promise<unknown>;
@@ -220,13 +225,14 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
     getConversationMessages(conversationId) {
       return request(`/chat/conversations/${encodeURIComponent(conversationId)}/messages`);
     },
-    transcribe(audioBase64, mimeType, durationSeconds) {
+    transcribe(audioBase64, mimeType, durationSeconds, script) {
       return request("/chat/transcribe", {
         method: "POST",
         body: JSON.stringify({
           audioBase64,
           mimeType,
           ...(durationSeconds !== undefined ? { durationSeconds } : {}),
+          ...(script ? { script } : {}),
         }),
       });
     },

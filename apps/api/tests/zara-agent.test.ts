@@ -153,6 +153,28 @@ describe("Zara agent loop (ADR-006 M2)", () => {
     expect(requests[1]!.messages[0]!.content).not.toContain("read aloud");
   });
 
+  it("an explicit 'remember…' makes the first turn call a tool (M4 follow-up)", async () => {
+    const { provider, requests } = scriptedProvider([
+      { toolCalls: [{ id: "c1", name: "remember_fact", arguments: JSON.stringify({ fact: "The user's name is Shubham", category: "about_you" }) }] },
+      { text: "Noted: your name is Shubham." },
+    ]);
+
+    await send(provider, "my name is shubham remembar that");
+
+    expect(requests[0]!.toolChoice).toBe("required");
+    expect(requests[1]!.toolChoice).toBeUndefined();
+    const facts = await prisma.memoryFact.findMany({ where: { userId } });
+    expect(facts.map((f) => f.content)).toEqual(["The user's name is Shubham"]);
+    await prisma.memoryFact.deleteMany({ where: { userId } });
+    await prisma.activityEntry.deleteMany({ where: { userId } });
+  });
+
+  it("ordinary messages leave the tool choice to the model", async () => {
+    const { provider, requests } = scriptedProvider([{ text: "Hi!" }]);
+    await send(provider, "hello");
+    expect(requests[0]!.toolChoice).toBeUndefined();
+  });
+
   it("refuses another user's conversation", async () => {
     const other = await prisma.user.create({ data: { email: "agent-other@example.local", displayName: "B", timezone: "UTC" } });
     const theirs = await prisma.conversation.create({ data: { userId: other.id, title: "private" } });

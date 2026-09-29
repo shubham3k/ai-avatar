@@ -315,7 +315,13 @@ export function registerIpc(options: {
 
   ipcMain.handle(
     "chat:transcribe",
-    async (_event, audioBase64: unknown, mimeType: unknown, durationSeconds: unknown): Promise<ChatActionResult<string>> => {
+    async (
+      _event,
+      audioBase64: unknown,
+      mimeType: unknown,
+      durationSeconds: unknown,
+      script: unknown,
+    ): Promise<ChatActionResult<string>> => {
       if (typeof audioBase64 !== "string" || audioBase64.length === 0) return { ok: false, message: "No audio was recorded. Try again." };
       if (typeof mimeType !== "string" || mimeType.length === 0) return { ok: false, message: "Invalid audio format." };
       const duration =
@@ -323,7 +329,8 @@ export function registerIpc(options: {
           ? durationSeconds
           : undefined;
       try {
-        const result = (await api.transcribe(audioBase64, mimeType, duration)) as { text?: unknown };
+        const hindiScript = script === "devanagari" ? "devanagari" : "latin";
+        const result = (await api.transcribe(audioBase64, mimeType, duration, hindiScript)) as { text?: unknown };
         return typeof result?.text === "string"
           ? { ok: true, value: result.text }
           : { ok: false, message: "Couldn't understand the recording. Try again." };

@@ -3,7 +3,7 @@
 **Last Updated:** September 29, 2026
 **Phase Completed:** Phases 1–4.7 (foundation → Google OAuth/Gmail/Calendar → daily context → SQLite, single-process desktop, onboarding, secrets, auto-migrations, Windows packaging), the Sept 18–28 feature stretch (background sync, tray, reminders, dock UI), and **Zara milestones M0–M5** (see below).
 
-**Current work — Zara, a local-first personal AI agent (design: `docs/decisions/ADR-006-zara-personal-agent.md`, read it first).** All Zara work is on git branch **`zara-agent`**, created from `main` after checkpoint `3a96d64`; merge back to `main` when the milestones are complete (user's instruction). Commits so far: M0 `d96f08a`, M1 `ca77fc2`, M2 `94e6181`, M3 `03b4efa`, M4 voice `30d7394`, M5 proactive (see `git log`). Working tree clean at end of the Sept 29 session.
+**Current work — Zara, a local-first personal AI agent (design: `docs/decisions/ADR-006-zara-personal-agent.md`, read it first).** All Zara work is on git branch **`zara-agent`**, created from `main` after checkpoint `3a96d64`; merge back to `main` when the milestones are complete (user's instruction). Commits so far: M0 `d96f08a`, M1 `ca77fc2`, M2 `94e6181`, M3 `03b4efa`, M4 voice `30d7394`, M5 proactive `0e51869`, test-feedback fixes (memory across chats, Hindi/Hinglish transcription — see `git log`). Working tree clean at end of the Sept 29 session.
 
 | Milestone | Status |
 | --- | --- |
@@ -21,6 +21,18 @@
 **Keys:** the OpenAI key goes in the app's **Settings → General → "AI provider (OpenAI)"** (encrypted in `%APPDATA%\@ai-agent\desktop\config.json`, shared by dev mode and the installed app). `apps/api/.env` has no OpenAI key (only Groq), so agent-side live tests run over Groq; a real OpenAI chat has **not** been verified yet. `.env.test` blanks all AI keys so tests never make billed calls.
 
 **Working rules with this user:** discuss before building new directions; never rebuild the `.exe` or commit unasked (commits on `zara-agent` per milestone are fine — the user approved that flow); after each milestone run typecheck + lint + all tests and a live check where possible.
+
+---
+
+## Addendum: fixes from the user's first M2–M5 test (September 29, 2026)
+
+On branch `zara-agent`, after M5 (`0e51869`).
+
+1. **Memory didn't carry across chats.** The user said "my name is shubham remembar that"; `gpt-6-luna` replied "I'll remember your name for this conversation" without calling `remember_fact` — the local DB had 0 memory facts (checked read-only). Fix: `domain/chat/remember-intent.ts` detects explicit save requests (remember/typos, "note that", "don't forget", "yaad rakhna", "mera naam", "my name is", Devanagari forms; not recall questions like "do you remember…"/"yaad hai?"), and the agent's **first model turn then uses `tool_choice: "required"`** (`ChatRequest.toolChoice`) — "required" rather than forcing `remember_fact`, since "remember to call Rahul at 5" is a reminder. Prompt v6: memory is permanent across chats, the user's name counts, never say "only for this conversation". Live (Groq, DB copy): name + "yaad rakhna ki Rahul mera manager hai" saved, then recalled in a **new** chat.
+2. **Hindi/Hinglish voice accuracy.** OpenAI transcription default `gpt-4o-mini-transcribe` → **`gpt-transcribe`** (the upgrade path already named in ADR-006; ~$0.0045/min vs $0.003), sent `languages: ["en","hi"]` (only to models that accept it). The prompt is now an example sentence in the wanted style (transcription models follow the prompt's language and script). New **Settings → Voice → "Write my Hindi as": Roman letters (Hinglish, default) / Devanagari**, passed as `script` on `POST /chat/transcribe`. Groq backup transcription `whisper-large-v3-turbo` → `whisper-large-v3` (better at Hindi). Not verifiable here without the user's OpenAI key.
+3. Sent-mail features: not yet tested by the user.
+
+Tests: API 694/694, desktop 233/233, typecheck + lint clean.
 
 ---
 

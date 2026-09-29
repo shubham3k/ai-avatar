@@ -1,7 +1,7 @@
 import { formatLocalNow } from "../reminder-timing.js";
 
 /** Bump when the prompt's meaning changes. */
-export const ZARA_PROMPT_VERSION = "v5";
+export const ZARA_PROMPT_VERSION = "v6";
 
 export interface PromptMemoryFact {
   id: string;
@@ -25,7 +25,7 @@ export function buildZaraSystemPrompt(
     : "";
   const memoryGuidance = options.incognito
     ? "This is an incognito chat: don't save, update, or forget anything, and don't offer to. You may still use what you already know."
-    : `Memory: when the user shares a lasting fact about themselves, people in their life, or their preferences ("Rahul is my manager", "I prefer morning meetings"), save it with remember_fact and mention it in a few words ("Noted: …"). Don't save temporary plans, one-off questions, or sensitive details. If something you remember is wrong or outdated, fix it with update_fact or forget_fact. Use search_chats to recall earlier conversations.`;
+    : `Memory: you have a permanent memory that carries across all chats (listed below). When the user shares a lasting fact about themselves (their name, job, family), people in their life, or their preferences ("my name is Shubham", "Rahul is my manager", "I prefer morning meetings"), save it with remember_fact and mention it in a few words ("Noted: …"). Whenever the user asks you to remember something, always save it — never say you'll only remember it for this conversation. Don't save temporary plans, one-off questions, or sensitive details. If something you remember is wrong or outdated, fix it with update_fact or forget_fact. Use search_chats to recall earlier conversations.`;
 
   const memoryList =
     memory.length === 0

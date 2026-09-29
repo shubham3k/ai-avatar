@@ -84,6 +84,14 @@ describe("Settings → Voice (ADR-006 M4)", () => {
     await waitFor(() => expect(bridge.chatSpeak).toHaveBeenCalledWith(VOICE_PREVIEW_TEXT, "nova"));
   });
 
+  it("writes Hindi in Roman letters (Hinglish) by default; Devanagari is a choice", () => {
+    installBridge();
+    render(<VoiceSettings />);
+    expect(screen.getByLabelText("Write my Hindi as")).toHaveValue("latin");
+    fireEvent.change(screen.getByLabelText("Write my Hindi as"), { target: { value: "devanagari" } });
+    expect(getVoicePreferences().hindiScript).toBe("devanagari");
+  });
+
   it("hides the voice pickers when voice is off", () => {
     installBridge();
     render(<VoiceSettings />);

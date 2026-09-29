@@ -236,6 +236,18 @@ export function VoiceSettings() {
             </span>
           </label>
         ))}
+        <label className="settings-sublabel" htmlFor="hindi-script">
+          Write my Hindi as
+        </label>
+        <select
+          id="hindi-script"
+          className="settings-input"
+          value={prefs.hindiScript}
+          onChange={(e) => update({ hindiScript: e.target.value === "devanagari" ? "devanagari" : "latin" })}
+        >
+          <option value="latin">Roman letters — Hinglish, e.g. "kal subah meeting hai"</option>
+          <option value="devanagari">Devanagari — e.g. "कल सुबह मीटिंग है"</option>
+        </select>
         <div className="settings-hint">
           Speak English, Hindi, or Hinglish — Zara answers the same way. Typing, clicking 🎤, or talking over her stops
           her speaking. With speakers instead of headphones, hands-free may sometimes hear Zara herself.

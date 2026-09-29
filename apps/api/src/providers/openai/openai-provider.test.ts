@@ -75,7 +75,7 @@ describe("openai provider", () => {
     });
   });
 
-  it("transcribes with gpt-4o-mini-transcribe, strips mime parameters, and reports audio seconds", async () => {
+  it("transcribes with gpt-transcribe (with the English+Hindi hint), strips mime parameters, and reports audio seconds", async () => {
     transcriptionsCreate.mockResolvedValue({ text: "remind me in 5 minutes" });
     const onUsage = vi.fn();
     const { createOpenAiProvider } = await import("./openai-provider.js");
@@ -84,18 +84,35 @@ describe("openai provider", () => {
       audio: Buffer.from("x"),
       mimeType: "audio/webm;codecs=opus",
       durationSeconds: 3.5,
+      prompt: "Hinglish",
+      languages: ["en", "hi"],
     });
 
     expect(text).toBe("remind me in 5 minutes");
     expect(transcriptionsCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: "gpt-4o-mini-transcribe",
+        model: "gpt-transcribe",
+        prompt: "Hinglish",
+        languages: ["en", "hi"],
         file: expect.objectContaining({ filename: "recording.webm", options: { type: "audio/webm" } }),
       }),
     );
     expect(onUsage).toHaveBeenCalledWith(
-      expect.objectContaining({ provider: "openai", model: "gpt-4o-mini-transcribe", audioSeconds: 3.5 }),
+      expect.objectContaining({ provider: "openai", model: "gpt-transcribe", audioSeconds: 3.5 }),
     );
+  });
+
+  it("doesn't send the languages hint to models that don't accept it", async () => {
+    transcriptionsCreate.mockResolvedValue({ text: "hi" });
+    const { createOpenAiProvider } = await import("./openai-provider.js");
+
+    await createOpenAiProvider({ apiKey: "sk-test", transcribeModel: "gpt-4o-mini-transcribe" }).transcribeAudio({
+      audio: Buffer.from("x"),
+      mimeType: "audio/webm",
+      languages: ["en", "hi"],
+    });
+
+    expect(transcriptionsCreate.mock.calls[0]![0]).not.toHaveProperty("languages");
   });
 
   it("names OpenAI in its errors", async () => {

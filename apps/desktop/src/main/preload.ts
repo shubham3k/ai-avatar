@@ -26,7 +26,12 @@ export interface DesktopApiBridge {
   /** ADR-006 (M2): Zara chat. */
   chatList(): Promise<unknown>;
   chatMessages(conversationId: string): Promise<unknown>;
-  chatTranscribe(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
+  chatTranscribe(
+    audioBase64: string,
+    mimeType: string,
+    durationSeconds?: number,
+    script?: "latin" | "devanagari",
+  ): Promise<unknown>;
   /** Streams Zara's reply through onEvent; resolves `{ ok, value | message }` when the reply is complete. */
   chatSend(
     conversationId: string | null,
@@ -94,8 +99,8 @@ const bridge: DesktopApiBridge = {
   },
   chatList: () => ipcRenderer.invoke("chat:list"),
   chatMessages: (conversationId) => ipcRenderer.invoke("chat:messages", conversationId),
-  chatTranscribe: (audioBase64, mimeType, durationSeconds) =>
-    ipcRenderer.invoke("chat:transcribe", audioBase64, mimeType, durationSeconds),
+  chatTranscribe: (audioBase64, mimeType, durationSeconds, script) =>
+    ipcRenderer.invoke("chat:transcribe", audioBase64, mimeType, durationSeconds, script),
   chatSend: (conversationId, text, onEvent, options) => {
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const listener = (_event: unknown, id: unknown, chatEvent: unknown) => {

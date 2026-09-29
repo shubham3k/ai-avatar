@@ -8,12 +8,22 @@ export type TranscriptionOutcome =
   | { ok: true; text: string }
   | { ok: false; code: TranscriptionFailureCode; message: string };
 
+/** How Hindi words are written in the transcript (Settings → Voice). Roman = how the user types Hinglish. */
+export type HindiScript = "latin" | "devanagari";
+
 /**
- * M4: the user may speak English, Hindi, or a mix of both. The hint helps
- * the model with mixed-language speech; it never forces a language.
+ * The user may speak English, Hindi, or a mix (Hinglish). The prompt is a
+ * short example in the wanted style — transcription models follow the
+ * prompt's language and script — and `languages` (gpt-transcribe) says the
+ * audio may be English or Hindi, never forcing either.
  */
-export const TRANSCRIPTION_LANGUAGE_HINT =
-  "The speaker may use English, Hindi, or Hinglish (Hindi and English mixed in one sentence).";
+export const TRANSCRIPTION_PROMPTS: Record<HindiScript, string> = {
+  latin:
+    "Hinglish conversation, Hindi written in Roman letters: Haan, kal subah 10 baje meeting hai, please reminder set kar do. Rahul ko email bhejna hai, aur budget report bhi check karni hai.",
+  devanagari:
+    "हिंदी और अंग्रेज़ी मिली हुई बातचीत: हाँ, कल सुबह 10 बजे meeting है, please reminder set कर दो। Rahul को email भेजना है, और budget report भी check करनी है।",
+};
+export const TRANSCRIPTION_LANGUAGES = ["en", "hi"];
 
 export const EMPTY_TRANSCRIPTION_MESSAGE = "Didn't catch anything — try recording again.";
 
@@ -27,14 +37,20 @@ export function createAudioTranscriptionService(dependencies?: { provider?: LlmP
   const provider = dependencies?.provider ?? createDefaultLlmProvider();
 
   return {
-    async transcribe(audio: Buffer, mimeType: string, durationSeconds?: number): Promise<TranscriptionOutcome> {
+    async transcribe(
+      audio: Buffer,
+      mimeType: string,
+      durationSeconds?: number,
+      script: HindiScript = "latin",
+    ): Promise<TranscriptionOutcome> {
       let text: string;
       try {
         text = await provider.transcribeAudio({
           audio,
           mimeType,
           operation: "transcription",
-          prompt: TRANSCRIPTION_LANGUAGE_HINT,
+          prompt: TRANSCRIPTION_PROMPTS[script],
+          languages: TRANSCRIPTION_LANGUAGES,
           ...(durationSeconds !== undefined ? { durationSeconds } : {}),
         });
       } catch (err) {

@@ -22,7 +22,8 @@ const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 const DEFAULT_MODEL = "qwen/qwen3.8-27b";
 // Groq's fast Whisper variant — good enough for short spoken commands
 // ("remind me to..."), not full-length dictation/transcription accuracy.
-const DEFAULT_TRANSCRIBE_MODEL = "whisper-large-v3-turbo";
+// The full model is noticeably better than -turbo at Hindi/Hinglish (M4 follow-up); Groq is only the backup.
+const DEFAULT_TRANSCRIBE_MODEL = "whisper-large-v3";
 
 /** Groq — the optional fallback provider since ADR-006 (the primary before it). */
 export function createGroqProvider(overrides?: {

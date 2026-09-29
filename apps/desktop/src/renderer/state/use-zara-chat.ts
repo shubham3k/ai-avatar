@@ -311,7 +311,12 @@ export function useZaraChat(): ZaraChat {
       setTranscribing(true);
       try {
         const result = readResult(
-          await bridge.chatTranscribe(await blobToBase64(clip.blob), clip.mimeType, clip.durationSeconds),
+          await bridge.chatTranscribe(
+            await blobToBase64(clip.blob),
+            clip.mimeType,
+            clip.durationSeconds,
+            getVoicePreferences().hindiScript,
+          ),
         );
         if (!result.ok) {
           // Hands-free also hears coughs and door slams — don't nag about those.

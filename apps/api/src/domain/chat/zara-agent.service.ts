@@ -17,6 +17,7 @@ import { createDefaultLlmProvider } from "../llm-usage.service.js";
 import { createReminderParsingService, type ReminderParsingService } from "../reminder-parsing.service.js";
 import { createActivityService, type ActivityService } from "../activity/activity.service.js";
 import { createMemoryService, MEMORY_CONTEXT_LIMIT, type MemoryService } from "../memory/memory.service.js";
+import { isExplicitRememberRequest } from "./remember-intent.js";
 import { buildZaraSystemPrompt } from "./zara-prompt.js";
 import { findTool, MEMORY_WRITE_TOOLS, ZARA_TOOLS, type ToolContext } from "./zara-tools.js";
 
@@ -173,10 +174,19 @@ export function createZaraAgentService(dependencies?: {
 
       let reply = "";
       let finished = false;
+      // "Remember that…" must actually be saved, not just acknowledged: the
+      // first turn has to call a tool (usually remember_fact).
+      const mustAct = !incognito && isExplicitRememberRequest(text);
       try {
         for (let step = 0; step < MAX_AGENT_STEPS && !finished; step += 1) {
           const result = await provider.streamChat(
-            { messages, tools, maxOutputTokens: 800, operation: "chat" },
+            {
+              messages,
+              tools,
+              maxOutputTokens: 800,
+              operation: "chat",
+              ...(mustAct && step === 0 ? { toolChoice: "required" as const } : {}),
+            },
             (delta) => {
               reply += delta;
               emit({ type: "delta", text: delta });

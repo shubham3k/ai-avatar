@@ -485,6 +485,8 @@ export const transcribeRequestSchema = z.object({
   audioBase64: z.string().min(1).max(10_000_000),
   mimeType: z.string().min(1),
   durationSeconds: z.number().min(0).max(600).optional(),
+  // How Hindi words are written: Roman (Hinglish, default) or Devanagari.
+  script: z.enum(["latin", "devanagari"]).optional(),
 });
 export const transcribeResponseSchema = z.object({ text: z.string() });
 

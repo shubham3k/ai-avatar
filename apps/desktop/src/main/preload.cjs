@@ -29,8 +29,8 @@ const bridge = {
     ipcRenderer.invoke("reminders:create-from-voice", audioBase64, mimeType, durationSeconds),
   chatList: () => ipcRenderer.invoke("chat:list"),
   chatMessages: (conversationId) => ipcRenderer.invoke("chat:messages", conversationId),
-  chatTranscribe: (audioBase64, mimeType, durationSeconds) =>
-    ipcRenderer.invoke("chat:transcribe", audioBase64, mimeType, durationSeconds),
+  chatTranscribe: (audioBase64, mimeType, durationSeconds, script) =>
+    ipcRenderer.invoke("chat:transcribe", audioBase64, mimeType, durationSeconds, script),
   chatSend: (conversationId, text, onEvent, options) => {
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const listener = (_event, id, chatEvent) => {

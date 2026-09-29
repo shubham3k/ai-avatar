@@ -80,7 +80,12 @@ export const chatRoutes: FastifyPluginAsyncZod = async (app) => {
       await requireCaller(request);
       const audio = Buffer.from(request.body.audioBase64, "base64");
       if (audio.length === 0) throw validationError("No audio was recorded.");
-      const outcome = await transcription.transcribe(audio, request.body.mimeType, request.body.durationSeconds);
+      const outcome = await transcription.transcribe(
+        audio,
+        request.body.mimeType,
+        request.body.durationSeconds,
+        request.body.script ?? "latin",
+      );
       if (!outcome.ok) {
         if (outcome.code === "auth_rejected" || outcome.code === "model_unavailable" || outcome.code === "provider_error") {
           throw upstreamError(outcome.message);

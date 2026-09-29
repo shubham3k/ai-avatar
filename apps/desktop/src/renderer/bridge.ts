@@ -24,7 +24,12 @@ interface DesktopApiBridge {
   /** ADR-006 (M2): Zara chat. Optional so older test doubles still type-check. */
   chatList?(): Promise<unknown>;
   chatMessages?(conversationId: string): Promise<unknown>;
-  chatTranscribe?(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
+  chatTranscribe?(
+    audioBase64: string,
+    mimeType: string,
+    durationSeconds?: number,
+    script?: "latin" | "devanagari",
+  ): Promise<unknown>;
   chatSend?(
     conversationId: string | null,
     text: string,

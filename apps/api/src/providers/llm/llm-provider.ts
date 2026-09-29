@@ -43,6 +43,8 @@ export interface TranscriptionRequest {
   durationSeconds?: number;
   /** Vocabulary/language hint for the model (M4: English, Hindi, Hinglish). */
   prompt?: string;
+  /** ISO-639-1 languages the audio may contain; sent only to models that accept it (gpt-transcribe). */
+  languages?: string[];
   operation?: LlmOperation;
 }
 
@@ -68,6 +70,8 @@ export type ChatTurnMessage =
 export interface ChatRequest {
   messages: ChatTurnMessage[];
   tools: ToolDefinition[];
+  /** "required": the model must call one of the tools this turn (default: its choice). */
+  toolChoice?: "auto" | "required";
   maxOutputTokens?: number;
   operation?: LlmOperation;
 }

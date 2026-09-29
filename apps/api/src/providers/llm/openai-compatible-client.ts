@@ -24,6 +24,8 @@ export interface OpenAiCompatibleConfig {
   transcribeModel: string;
   /** Provider-specific Chat Completions fields (e.g. OpenAI's `store: false`, `reasoning_effort`). */
   extraChatParams?: Record<string, unknown>;
+  /** The transcription model accepts a `languages` hint (OpenAI gpt-transcribe). */
+  transcribeLanguageHints?: boolean;
   /** Ask for token usage on the final streamed chunk (`stream_options.include_usage`) — OpenAI supports it. */
   streamUsage?: boolean;
   onUsage?: LlmUsageListener;
@@ -196,6 +198,7 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleConfig): 
           model: config.transcribeModel,
           file: await toFile(request.audio, `recording.${extension}`, { type: mimeType }),
           ...(request.prompt ? { prompt: request.prompt } : {}),
+          ...(request.languages && config.transcribeLanguageHints ? { languages: request.languages } : {}),
         });
         text = response.text;
         config.onUsage?.({
@@ -227,6 +230,7 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleConfig): 
                 type: "function" as const,
                 function: { name: tool.name, description: tool.description, parameters: tool.parameters },
               })),
+              ...(request.toolChoice ? { tool_choice: request.toolChoice } : {}),
             }
           : {}),
         max_completion_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,

@@ -35,6 +35,7 @@ describe("audio transcription service", () => {
       mimeType: "audio/webm",
       operation: "transcription",
       prompt: expect.stringContaining("Hinglish"),
+      languages: ["en", "hi"],
       durationSeconds: 4.2,
     });
   });
@@ -66,5 +67,11 @@ describe("audio transcription service", () => {
     const result = await service.transcribe(Buffer.from("audio"), "audio/webm");
 
     expect(result).toMatchObject({ ok: false, code: "empty" });
+  });
+
+  it("asks for Devanagari when the user prefers it", async () => {
+    const provider = makeProvider();
+    await createAudioTranscriptionService({ provider }).transcribe(Buffer.from("a"), "audio/webm", 2, "devanagari");
+    expect(provider.transcribeAudio).toHaveBeenCalledWith(expect.objectContaining({ prompt: expect.stringContaining("कल सुबह") }));
   });
 });

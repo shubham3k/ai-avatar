@@ -36,6 +36,8 @@ export function setChatAutoHideSeconds(seconds: number): void {
  */
 export type VoiceEngine = "openai" | "windows" | "off";
 export type VoiceInputMode = "click" | "handsfree";
+/** How Hindi words are written when Zara transcribes you: Roman letters (Hinglish, as you type) or Devanagari. */
+export type HindiScript = "latin" | "devanagari";
 
 export interface VoicePreferences {
   engine: VoiceEngine;
@@ -43,6 +45,7 @@ export interface VoicePreferences {
   /** A Windows voice's name, or null for the system default. */
   windowsVoice: string | null;
   inputMode: VoiceInputMode;
+  hindiScript: HindiScript;
 }
 
 const VOICE_KEY = "zara.voice";
@@ -52,6 +55,7 @@ export const DEFAULT_VOICE_PREFERENCES: VoicePreferences = {
   openaiVoice: "marin",
   windowsVoice: null,
   inputMode: "click",
+  hindiScript: "latin",
 };
 
 function isEngine(value: unknown): value is VoiceEngine {
@@ -71,6 +75,7 @@ export function getVoicePreferences(): VoicePreferences {
           : DEFAULT_VOICE_PREFERENCES.openaiVoice,
       windowsVoice: typeof parsed.windowsVoice === "string" && parsed.windowsVoice ? parsed.windowsVoice : null,
       inputMode: parsed.inputMode === "handsfree" ? "handsfree" : "click",
+      hindiScript: parsed.hindiScript === "devanagari" ? "devanagari" : "latin",
     };
   } catch {
     return { ...DEFAULT_VOICE_PREFERENCES };
