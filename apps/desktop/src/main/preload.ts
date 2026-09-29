@@ -49,6 +49,12 @@ export interface DesktopApiBridge {
   saveChatHotkey(accelerator: string): Promise<unknown>;
   /** Fires when the global Zara shortcut is pressed; returns an unsubscribe function. */
   onHotkey(callback: () => void): () => void;
+  /** ADR-006 (M5): proactive settings, briefing now, hold state, briefing delivery. */
+  proactiveGetSettings(): Promise<unknown>;
+  proactiveUpdateSettings(patch: Record<string, unknown>): Promise<unknown>;
+  proactiveBriefingNow(kind: "morning" | "wrap_up"): Promise<unknown>;
+  onHoldChanged(callback: (state: unknown) => void): () => void;
+  onBriefing(callback: (briefing: unknown) => void): () => void;
 }
 
 export interface ChatSendOptions {
@@ -115,6 +121,19 @@ const bridge: DesktopApiBridge = {
     const listener = () => callback();
     ipcRenderer.on("zara:hotkey", listener);
     return () => ipcRenderer.removeListener("zara:hotkey", listener);
+  },
+  proactiveGetSettings: () => ipcRenderer.invoke("proactive:get-settings"),
+  proactiveUpdateSettings: (patch) => ipcRenderer.invoke("proactive:update-settings", patch),
+  proactiveBriefingNow: (kind) => ipcRenderer.invoke("proactive:briefing-now", kind),
+  onHoldChanged: (callback) => {
+    const listener = (_event: unknown, state: unknown) => callback(state);
+    ipcRenderer.on("proactive:hold", listener);
+    return () => ipcRenderer.removeListener("proactive:hold", listener);
+  },
+  onBriefing: (callback) => {
+    const listener = (_event: unknown, briefing: unknown) => callback(briefing);
+    ipcRenderer.on("zara:briefing", listener);
+    return () => ipcRenderer.removeListener("zara:briefing", listener);
   },
 };
 

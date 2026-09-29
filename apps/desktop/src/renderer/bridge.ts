@@ -45,6 +45,12 @@ interface DesktopApiBridge {
   chatSpeak?(text: string, voice: string): Promise<unknown>;
   saveChatHotkey?(accelerator: string): Promise<unknown>;
   onHotkey?(callback: () => void): () => void;
+  /** ADR-006 (M5). Optional so older test doubles still type-check. */
+  proactiveGetSettings?(): Promise<unknown>;
+  proactiveUpdateSettings?(patch: Record<string, unknown>): Promise<unknown>;
+  proactiveBriefingNow?(kind: "morning" | "wrap_up"): Promise<unknown>;
+  onHoldChanged?(callback: (state: unknown) => void): () => void;
+  onBriefing?(callback: (briefing: unknown) => void): () => void;
 }
 
 declare global {

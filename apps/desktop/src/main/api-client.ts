@@ -69,6 +69,10 @@ export interface ApiClient {
   listConversations(): Promise<unknown>;
   getConversationMessages(conversationId: string): Promise<unknown>;
   transcribe(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
+  /** ADR-006 (M5): proactive settings, briefings, sent-mail follow-ups/promises. */
+  proactiveSettings(): Promise<unknown>;
+  updateProactiveSettings(patch: Record<string, unknown>): Promise<unknown>;
+  deliverBriefing(kind: "morning" | "wrap_up", force?: boolean): Promise<unknown>;
   /** M4: one chunk of Zara's reply as MP3 (`{ audioBase64, mimeType }`) in the given OpenAI voice. */
   speak(text: string, voice: string): Promise<unknown>;
   /** Sends a message and streams Zara's reply; resolves when the stream ends. Omit conversationId to start a new chat. */
@@ -226,6 +230,15 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
         }),
       });
     },
+    proactiveSettings() {
+      return request("/proactive/settings");
+    },
+    updateProactiveSettings(patch) {
+      return request("/proactive/settings", { method: "PATCH", body: JSON.stringify(patch) });
+    },
+    deliverBriefing(kind, force) {
+      return request("/proactive/briefing", { method: "POST", body: JSON.stringify({ kind, ...(force ? { force: true } : {}) }) });
+    },
     speak(text, voice) {
       return request("/chat/speak", { method: "POST", body: JSON.stringify({ text, voice }) });
     },
@@ -279,6 +292,9 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
       await request("/reminders/detect-signals", { method: "POST", body: "{}" });
       await request("/integrations/google/gmail/sync", { method: "POST", body: "{}" });
       await request("/integrations/google/gmail/detect-signals", { method: "POST", body: "{}" });
+      // ADR-006 M5: sent mail → promise reminders + follow-up nudges. Best
+      // effort: a problem here (e.g. the AI is down) mustn't stop the sync.
+      await request("/proactive/sent-mail", { method: "POST", body: "{}" }).catch(() => undefined);
       await request("/integrations/google/calendar/sync", { method: "POST", body: "{}" });
       await request("/integrations/google/calendar/detect-signals", {
         method: "POST",

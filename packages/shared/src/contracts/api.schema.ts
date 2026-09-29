@@ -538,3 +538,54 @@ export const speakRequestSchema = z.object({
   voice: z.enum(OPENAI_TTS_VOICES),
 });
 export const speakResponseSchema = z.object({ audioBase64: z.string(), mimeType: z.literal("audio/mpeg") });
+
+// ADR-006 (M5): proactive behaviour.
+const clockTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use HH:MM (24-hour)");
+export const briefingModeSchema = z.enum(["written", "spoken", "both"]);
+export type BriefingMode = z.infer<typeof briefingModeSchema>;
+
+export const proactiveSettingsSchema = z.object({
+  briefingEnabled: z.boolean(),
+  briefingMode: briefingModeSchema,
+  briefingWeekdaysOnly: z.boolean(),
+  wrapUpEnabled: z.boolean(),
+  wrapUpTime: clockTimeSchema,
+  preMeetingBriefEnabled: z.boolean(),
+  followUpEnabled: z.boolean(),
+  followUpDays: z.number().int().min(1).max(14),
+  promiseRemindersEnabled: z.boolean(),
+  promiseRemindTime: clockTimeSchema,
+  promiseSameDayLeadHours: z.number().int().min(1).max(12),
+  holdDuringFocus: z.boolean(),
+  quietHoursEnabled: z.boolean(),
+  quietHoursStart: clockTimeSchema,
+  quietHoursEnd: clockTimeSchema,
+});
+export type ProactiveSettingsDto = z.infer<typeof proactiveSettingsSchema>;
+export const updateProactiveSettingsSchema = proactiveSettingsSchema.partial();
+
+export const briefingKindSchema = z.enum(["morning", "wrap_up"]);
+export type BriefingKind = z.infer<typeof briefingKindSchema>;
+export const deliverBriefingRequestSchema = z.object({
+  kind: briefingKindSchema,
+  // Settings' "Show it now" button: skip the due check (still recorded as delivered).
+  force: z.boolean().optional(),
+});
+export const deliverBriefingResponseSchema = z.union([
+  z.object({ delivered: z.literal(false) }),
+  z.object({
+    delivered: z.literal(true),
+    kind: briefingKindSchema,
+    conversationId: z.string(),
+    title: z.string(),
+    text: z.string(),
+    mode: briefingModeSchema,
+  }),
+]);
+
+export const sentMailProcessResponseSchema = z.object({
+  synced: z.number().int(),
+  analyzed: z.number().int(),
+  promiseReminders: z.number().int(),
+  followUps: z.number().int(),
+});

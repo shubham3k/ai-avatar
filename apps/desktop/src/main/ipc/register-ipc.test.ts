@@ -4,6 +4,7 @@ import {
   isOpenAiModelChoice,
   OPENAI_MODEL_CHOICES,
   parseChatHistory,
+  parseProactivePatch,
   parseSpeakRequest,
   settle,
   toReminderCreateResult,
@@ -109,5 +110,24 @@ describe("parseSpeakRequest (M4)", () => {
     expect(parseSpeakRequest("a".repeat(1001), "marin")).toBeNull();
     expect(parseSpeakRequest("hi", "../etc")).toBeNull();
     expect(parseSpeakRequest(42, "marin")).toBeNull();
+  });
+});
+
+describe("parseProactivePatch (M5)", () => {
+  it("passes known fields with the right types", () => {
+    expect(parseProactivePatch({ followUpDays: 5, quietHoursEnabled: true, wrapUpTime: "19:00" })).toEqual({
+      followUpDays: 5,
+      quietHoursEnabled: true,
+      wrapUpTime: "19:00",
+    });
+  });
+
+  it("rejects unknown fields, wrong types, and empty or odd payloads", () => {
+    expect(parseProactivePatch({ lastBriefingOn: "2026-09-29" })).toBeNull();
+    expect(parseProactivePatch({ followUpDays: "5" })).toBeNull();
+    expect(parseProactivePatch({ wrapUpTime: "x".repeat(50) })).toBeNull();
+    expect(parseProactivePatch({})).toBeNull();
+    expect(parseProactivePatch([1])).toBeNull();
+    expect(parseProactivePatch(null)).toBeNull();
   });
 });

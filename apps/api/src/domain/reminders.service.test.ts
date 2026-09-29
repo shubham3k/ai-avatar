@@ -14,6 +14,8 @@ function makeReminder(overrides: Partial<Reminder> = {}): Reminder {
     text: "Call the vendor about pricing",
     dueAt: new Date("2026-09-25T09:00:00.000Z"),
     remindAt: null,
+    origin: null,
+    sourceEmailId: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,

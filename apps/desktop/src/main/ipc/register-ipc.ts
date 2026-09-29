@@ -54,6 +54,37 @@ export function parseSpeakRequest(text: unknown, voice: unknown): { text: string
   return { text: trimmed, voice };
 }
 
+const PROACTIVE_FIELDS: Record<string, "boolean" | "number" | "string"> = {
+  briefingEnabled: "boolean",
+  briefingMode: "string",
+  briefingWeekdaysOnly: "boolean",
+  wrapUpEnabled: "boolean",
+  wrapUpTime: "string",
+  preMeetingBriefEnabled: "boolean",
+  followUpEnabled: "boolean",
+  followUpDays: "number",
+  promiseRemindersEnabled: "boolean",
+  promiseRemindTime: "string",
+  promiseSameDayLeadHours: "number",
+  holdDuringFocus: "boolean",
+  quietHoursEnabled: "boolean",
+  quietHoursStart: "string",
+  quietHoursEnd: "string",
+};
+
+/** M5: a settings patch from the renderer — known fields with the right types only (the API validates values). */
+export function parseProactivePatch(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return null;
+  for (const [key, field] of entries) {
+    const expected = PROACTIVE_FIELDS[key];
+    if (!expected || typeof field !== expected) return null;
+    if (typeof field === "string" && field.length > 20) return null;
+  }
+  return Object.fromEntries(entries);
+}
+
 /** What the free-text/voice reminder IPC calls resolve with. */
 export type ReminderCreateResult =
   | { ok: true; reminder: unknown }
@@ -127,6 +158,10 @@ export function registerIpc(options: {
   saveOpenAiModelAndRestart: (model: string) => void;
   /** Same restart-required rationale as the Groq key — see docs/SINGLE_PROCESS_DESKTOP.md. */
   saveGoogleCredentialsAndRestart: (clientId: string, clientSecret: string) => void;
+  /** M5: whether pop-ups are held right now (full-screen, presentation, call, quiet hours). */
+  getHoldState: () => { holding: boolean; reason: string | null };
+  /** M5: settings changed — re-evaluate holds right away. */
+  onProactiveSettingsChanged?: () => void;
   /** M4: the Zara shortcut currently registered (null if another app holds it). */
   getChatHotkey: () => string | null;
   /** M4: validates, re-registers, and persists a new shortcut — takes effect immediately. */
@@ -152,6 +187,8 @@ export function registerIpc(options: {
     saveGoogleCredentialsAndRestart,
     getChatHotkey,
     changeChatHotkey,
+    getHoldState,
+    onProactiveSettingsChanged,
   } = options;
 
   ipcMain.handle("inbox:get", async () => api.fetchInbox());
@@ -209,7 +246,22 @@ export function registerIpc(options: {
     googleAuthError: getGoogleAuthError(),
     lastCheckedAt: getLastCheckedAt(),
     chatHotkey: getChatHotkey(),
+    hold: getHoldState(),
   }));
+
+  // ADR-006 (M5): proactive settings and "show the briefing now".
+  ipcMain.handle("proactive:get-settings", async () => settle(() => api.proactiveSettings(), "Couldn't load these settings."));
+  ipcMain.handle("proactive:update-settings", async (_event, patch: unknown) => {
+    const parsed = parseProactivePatch(patch);
+    if (!parsed) return { ok: false, message: "Those settings aren't valid." } satisfies ChatActionResult<never>;
+    const result = await settle(() => api.updateProactiveSettings(parsed), "Couldn't save that — check the times (HH:MM).");
+    if (result.ok) onProactiveSettingsChanged?.();
+    return result;
+  });
+  ipcMain.handle("proactive:briefing-now", async (_event, kind: unknown) => {
+    if (kind !== "morning" && kind !== "wrap_up") return { ok: false, message: "Unknown briefing." } satisfies ChatActionResult<never>;
+    return settle(() => api.deliverBriefing(kind, true), "Couldn't prepare the briefing right now.");
+  });
 
   ipcMain.handle("settings:save-hotkey", async (_event, accelerator: unknown) => changeChatHotkey(accelerator));
 

@@ -97,6 +97,8 @@ export interface ZaraChat {
   stopListening: () => void;
   /** M4: e.g. why a Windows voice is speaking instead of OpenAI's. */
   voiceNotice: string | null;
+  /** M5: read text aloud (e.g. a spoken morning briefing), sentence by sentence. */
+  speakText: (text: string) => void;
   /** True while anything is in flight, the mic is open, or Zara is speaking — the panel must not auto-hide then. */
   busy: boolean;
 }
@@ -161,6 +163,13 @@ export function useZaraChat(): ZaraChat {
 
   const stopSpeaking = useCallback(() => {
     speakerRef.current?.stop();
+  }, []);
+
+  const speakText = useCallback((text: string) => {
+    const speaker = speakerRef.current!;
+    speaker.stop();
+    const chunker = createSentenceChunker();
+    [...chunker.push(text), ...chunker.flush()].forEach((chunk) => speaker.say(chunk));
   }, []);
 
   const send = useCallback(async (rawText: string, options?: { spoken?: boolean }): Promise<void> => {
@@ -430,6 +439,7 @@ export function useZaraChat(): ZaraChat {
     handsFree,
     stopListening,
     voiceNotice,
+    speakText,
     busy: sending || recording || transcribing || handsFree || speaking,
   };
 }

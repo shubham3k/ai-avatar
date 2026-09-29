@@ -10,6 +10,24 @@ import { useInterventionPolling } from "./state/use-intervention-polling";
 import { useZaraChat } from "./state/use-zara-chat";
 import { useReportContentSize } from "./state/use-report-content-size";
 import { useSetupStatus } from "./state/use-setup-status";
+import { holdLabel, useHoldState } from "./state/use-hold-state";
+
+/** How long an unanswered briefing stays open before auto-hide (it's longer than a chat reply). */
+const BRIEFING_MIN_VISIBLE_SECONDS = 120;
+
+interface BriefingEvent {
+  conversationId: string;
+  text: string;
+  mode: "written" | "spoken" | "both";
+}
+
+function readBriefing(raw: unknown): BriefingEvent | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  if (typeof value.conversationId !== "string" || typeof value.text !== "string") return null;
+  const mode = value.mode === "spoken" || value.mode === "both" ? value.mode : "written";
+  return { conversationId: value.conversationId, text: value.text, mode };
+}
 
 const DEFAULT_SNOOZE_MINUTES = 60;
 const STATUS_MESSAGE_DURATION_MS = 1500;
@@ -30,6 +48,9 @@ export default function App() {
   const [chatOpen, setChatOpen] = useState(false);
   // M4: bumped by the global hotkey so the chat box gets the cursor.
   const [chatFocusSignal, setChatFocusSignal] = useState(0);
+  // M5: pop-ups held while presenting / full-screen / on a call / quiet hours.
+  const hold = useHoldState();
+  const [briefingOpen, setBriefingOpen] = useState(false);
 
   // A brief, self-clearing confirmation after an action succeeds — kept
   // independent of the interventions list state so it still shows even
@@ -169,6 +190,7 @@ export default function App() {
   // Closing the panel also closes the mic and silences Zara.
   const closeChat = useCallback(() => {
     setChatOpen(false);
+    setBriefingOpen(false);
     stopListening();
     stopSpeaking();
   }, [stopListening, stopSpeaking]);
@@ -203,6 +225,31 @@ export default function App() {
     return () => unsubscribe?.();
   }, []);
 
+  // M5: the morning briefing / wrap-up arrives from the main process (or
+  // Settings' "Show now"). Written → open it as a chat; spoken → read it
+  // aloud; both → both. It's saved as a chat either way (🕘 history).
+  const { openConversation, speakText } = chat;
+  const showBriefing = useCallback(
+    (raw: unknown) => {
+      const briefing = readBriefing(raw);
+      if (!briefing) return;
+      if (briefing.mode !== "spoken") {
+        setShowSettings(false);
+        void openConversation(briefing.conversationId);
+        setChatOpen(true);
+        setBriefingOpen(true);
+      }
+      if (briefing.mode !== "written") speakText(briefing.text);
+    },
+    [openConversation, speakText],
+  );
+  const showBriefingRef = useRef(showBriefing);
+  showBriefingRef.current = showBriefing;
+  useEffect(() => {
+    const unsubscribe = window.desktopAPI?.onBriefing?.((raw) => showBriefingRef.current(raw));
+    return () => unsubscribe?.();
+  }, []);
+
   // The persistent bottom-right control pill, rendered last on every screen,
   // with Zara's chat panel (ADR-006 M2) directly above it when open. "last
   // checked" reflects the scheduled tick, the tray's Check now, and the
@@ -216,7 +263,11 @@ export default function App() {
         <ChatPanel
           chat={chat}
           onClose={closeChat}
-          autoHideSeconds={getChatAutoHideSeconds()}
+          autoHideSeconds={
+            briefingOpen && getChatAutoHideSeconds() > 0
+              ? Math.max(getChatAutoHideSeconds(), BRIEFING_MIN_VISIBLE_SECONDS)
+              : getChatAutoHideSeconds()
+          }
           focusSignal={chatFocusSignal}
         />
       )}
@@ -242,6 +293,8 @@ export default function App() {
             : undefined
         }
         chatOpen={chatOpen}
+        waitingCount={fullControls && hold.holding ? interventions.length : 0}
+        heldLabel={holdLabel(hold.reason)}
       />
     </>
   );
@@ -250,6 +303,7 @@ export default function App() {
     return (
       <div className="overlay">
         <Settings
+          onShowBriefing={showBriefing}
           onClose={() => {
             setShowSettings(false);
             void refreshSetupStatus();
@@ -308,9 +362,20 @@ export default function App() {
   // visible, and the window itself shrinks to just its size (see
   // useReportContentSize). A new intervention or reminder reintroduces the
   // card the moment it exists.
-  if (interventions.length === 0) {
+  // M5: while held, cards wait (the dock counts them); only urgent ones
+  // (a meeting about to start, high-priority alerts) get one quiet line.
+  if (interventions.length === 0 || hold.holding) {
+    const urgent = hold.holding
+      ? interventions.filter((item) => item.priority === "high" || item.priority === "critical").slice(0, 2)
+      : [];
     return (
       <div className="overlay overlay-idle">
+        {urgent.map((item) => (
+          <div key={item.id} className="quiet-notice" role="status" data-testid="quiet-notice">
+            {item.title}
+            {item.message && item.message !== item.title ? ` — ${item.message}` : ""}
+          </div>
+        ))}
         {checkError && (
           <div className="check-error-banner" role="alert">
             {checkError}

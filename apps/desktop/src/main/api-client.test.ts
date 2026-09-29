@@ -121,13 +121,14 @@ describe("desktop api client", () => {
     expect(result).toEqual(status);
   });
 
-  it("checkNow runs reminders -> sync -> detect-signals -> sync -> detect-signals -> evaluate in order and returns the evaluate result", async () => {
+  it("checkNow runs reminders -> sync -> detect-signals -> sent mail -> sync -> detect-signals -> evaluate in order and returns the evaluate result", async () => {
     const evaluateResult = { results: [{ situationId: "sit_1", created: true }] };
     const fetchImpl = vi
       .fn<FetchLike>()
       .mockResolvedValueOnce(okResponse({ analyzed: 0, interventionsCreated: 0 })) // reminders detect-signals
       .mockResolvedValueOnce(okResponse({ fetched: 1, created: 1, updated: 0 })) // gmail sync
       .mockResolvedValueOnce(okResponse({ created: 0 })) // gmail detect-signals
+      .mockResolvedValueOnce(okResponse({ synced: 1, analyzed: 1, promiseReminders: 0, followUps: 0 })) // M5 sent mail
       .mockResolvedValueOnce(okResponse({ fetched: 1, created: 1, updated: 0 })) // calendar sync
       .mockResolvedValueOnce(okResponse({ created: 0 })) // calendar detect-signals
       .mockResolvedValueOnce(okResponse(evaluateResult)); // assistant evaluate
@@ -139,12 +140,30 @@ describe("desktop api client", () => {
       "http://localhost:4000/api/v1/reminders/detect-signals",
       "http://localhost:4000/api/v1/integrations/google/gmail/sync",
       "http://localhost:4000/api/v1/integrations/google/gmail/detect-signals",
+      "http://localhost:4000/api/v1/proactive/sent-mail",
       "http://localhost:4000/api/v1/integrations/google/calendar/sync",
       "http://localhost:4000/api/v1/integrations/google/calendar/detect-signals",
       "http://localhost:4000/api/v1/assistant/evaluate",
     ]);
     expect(fetchImpl.mock.calls.every((call) => call[1]?.method === "POST")).toBe(true);
     expect(result).toEqual(evaluateResult);
+  });
+
+  it("checkNow carries on when the sent-mail step fails (M5, best effort)", async () => {
+    const fail = { ok: false, status: 502, json: async () => ({ error: { code: "provider_error", message: "AI down" } }) };
+    const fetchImpl = vi
+      .fn<FetchLike>()
+      .mockResolvedValueOnce(okResponse({}))
+      .mockResolvedValueOnce(okResponse({}))
+      .mockResolvedValueOnce(okResponse({}))
+      .mockResolvedValueOnce(fail)
+      .mockResolvedValueOnce(okResponse({}))
+      .mockResolvedValueOnce(okResponse({}))
+      .mockResolvedValueOnce(okResponse({ results: [] }));
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+
+    await expect(client.checkNow()).resolves.toEqual({ results: [] });
+    expect(fetchImpl).toHaveBeenCalledTimes(7);
   });
 
   it("checkNow stops and throws at the first step that fails, without calling later steps", async () => {

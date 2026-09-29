@@ -16,6 +16,9 @@ export interface DockProps {
   micBusy?: boolean;
   onToggleChat?: (() => void) | undefined;
   chatOpen?: boolean;
+  /** M5: pop-ups held (presenting, full-screen, call, quiet hours) — how many are waiting, and why. */
+  waitingCount?: number;
+  heldLabel?: string;
 }
 
 function MicIcon() {
@@ -62,6 +65,8 @@ export function Dock({
   micBusy = false,
   onToggleChat,
   chatOpen = false,
+  waitingCount = 0,
+  heldLabel,
 }: DockProps) {
   const relative = lastCheckedAt != null ? formatRelativeTime(lastCheckedAt) : null;
   const hasReminderButtons = Boolean(onToggleMic || onToggleChat);
@@ -121,6 +126,14 @@ export function Dock({
             </span>
             {checking ? "Checking…" : "Check now"}
           </button>
+        </>
+      )}
+      {waitingCount > 0 && (
+        <>
+          <span className="dock-divider" aria-hidden="true" />
+          <span className="dock-waiting" title={`Held ${heldLabel ?? "for now"} — they'll show when you're free`}>
+            ⏸ {waitingCount} waiting
+          </span>
         </>
       )}
       {relative && (

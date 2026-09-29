@@ -123,7 +123,7 @@ Embedded API    agent runtime (loop: model → tool call → validated execution
 | 2 ✅ | Chat | Conversation panel, agent loop with read tools + reminder tools, streaming, New chat, history, auto-hide (`94e6181`) |
 | 3 ✅ | Memory + activity log | Facts, memory page, incognito, redaction, activity log with undo (`03b4efa`) |
 | 4 ✅ | Voice | Hotkey, spoken replies, voice picker, hands-free, interruption, Hindi/Hinglish |
-| 5 | Proactive | Briefings, pre-meeting summary, follow-ups, promises, held pop-ups, wrap-up |
+| 5 ✅ | Proactive | Briefings, pre-meeting summary, follow-ups, promises, held pop-ups, wrap-up |
 | 6 | Recall | Local index over email/chats/notes/`Documents\Zara`, notes, people memory (experimental) |
 | 7 | Actions | Google re-consent, approval cards, email send with 30 s undo, calendar actions, writing style |
 | 8 | MCP | Add-connection screen, strict trust, servers in the order above |
@@ -131,7 +131,7 @@ Embedded API    agent runtime (loop: model → tool call → validated execution
 
 Development happens on `zara-agent`; it is merged into `main` when complete.
 
-### Implementation notes (deviations found during M1–M4)
+### Implementation notes (deviations found during M1–M5)
 
 - **`create_reminder` takes the user's own words**, not structured time fields: the tool hands the request to the dedicated reminder parser (`reminder-parsing.service.ts`, ADR-005). Live testing showed the chat model — especially the Groq fallback — filling time fields unreliably (e.g. turning "kal subah 9 baje" into 1,079 relative minutes). A per-message dedupe guard prevents repeated calls creating duplicates.
 - **Redaction is enforced at the provider boundary** (`providers/llm/redacting-provider.ts`, wrapping primary and fallback in `createLlmProvider`) rather than per feature, so no AI request can bypass it. Audio sent for transcription can't be redacted; its text output is redacted wherever it's used next.
@@ -139,6 +139,7 @@ Development happens on `zara-agent`; it is merged into `main` when complete.
 - **`gpt-6-luna` requires `reasoning_effort: "none"`** on Chat Completions for function calling; all OpenAI calls also send `store: false`.
 - **Settings is tabbed** (General / Voice / Memory / Activity); the chat auto-hide seconds and the voice preferences live in renderer `localStorage`; the hotkey lives in `config.json` (the main process owns `globalShortcut`).
 - **M4 voice:** default OpenAI voice `marin`; the hotkey's first press opens the chat, a press while it's open toggles the mic. Replies are spoken sentence by sentence as they stream (lower latency than waiting for the whole reply). **TTS has no Groq fallback** (Groq's voices can't speak Hindi) — a local Windows voice takes over and the reason is shown once. Hands-free is volume-based voice-activity detection, active only while the chat is open and off after 60 s of quiet — not a wake word, which stays on the later list. Interrupting while Zara speaks needs louder, ≥0.4 s speech so her own voice through speakers doesn't cut her off; headphones avoid the issue.
+- **M5 proactive:** "first unlock of the day" is implemented as *the first time after 05:00 the user is at the PC* (unlock, resume, app start, or keyboard/mouse activity within 2 minutes) — a PC left unlocked overnight still gets its briefing when the user sits down, not at 05:00 to an empty room. The briefing and wrap-up are saved as chats ("Morning briefing · Tue 29 Sep") so the user can ask follow-ups; "spoken" reads it aloud without opening the panel. Sent mail (last 14 days, the user's own text trimmed to 4,000 chars) is analysed once per email; **the model reports the kind of deadline, code resolves the date** (same lesson as ADR-005 — live testing showed Groq resolving "by Friday" wrongly 1 in 3 times); "by <weekday>" written on that weekday means the following week. Follow-ups only for sent emails the AI judged to expect a reply, confirmed against the Gmail thread before nudging. Busy detection = Windows' own notification state (full-screen / presentation) + another app using the mic or camera (= call), read by a hidden PowerShell helper every 5 s; urgent = high/critical priority (a meeting within 5 minutes). Settings live in the local DB (`ProactiveSettings`) because both the API and the desktop scheduler need them.
 
 ## Consequences
 

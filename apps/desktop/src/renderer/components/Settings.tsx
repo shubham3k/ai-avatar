@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActivitySettings } from "./ActivitySettings";
 import { MemorySettings } from "./MemorySettings";
+import { ProactiveSettings } from "./ProactiveSettings";
 import { VoiceSettings } from "./VoiceSettings";
 import {
   getChatAutoHideSeconds,
@@ -86,9 +87,11 @@ export interface SettingsProps {
    * complete, to render as a normal, closable Settings panel.
    */
   onClose?: () => void;
+  /** M5: "Show now" in the Proactive tab hands the briefing to the app to display/speak. */
+  onShowBriefing?: (briefing: unknown) => void;
 }
 
-export function Settings({ onClose }: SettingsProps) {
+export function Settings({ onClose, onShowBriefing }: SettingsProps) {
   const [status, setStatus] = useState<SettingsStatus | null>(null);
   const [google, setGoogle] = useState<GoogleStatus | null>(null);
   const [groqKeyInput, setGroqKeyInput] = useState("");
@@ -96,7 +99,7 @@ export function Settings({ onClose }: SettingsProps) {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [autoHideSeconds, setAutoHideSeconds] = useState(getChatAutoHideSeconds);
-  const [tab, setTab] = useState<"general" | "voice" | "memory" | "activity">("general");
+  const [tab, setTab] = useState<"general" | "voice" | "proactive" | "memory" | "activity">("general");
   const [googleClientIdInput, setGoogleClientIdInput] = useState("");
   const [googleClientSecretInput, setGoogleClientSecretInput] = useState("");
   const [saving, setSaving] = useState(false);
@@ -221,6 +224,7 @@ export function Settings({ onClose }: SettingsProps) {
             [
               ["general", "General"],
               ["voice", "Voice"],
+              ["proactive", "Proactive"],
               ["memory", "Memory"],
               ["activity", "Activity"],
             ] as const
@@ -239,6 +243,7 @@ export function Settings({ onClose }: SettingsProps) {
         </div>
       )}
       {tab === "voice" && <VoiceSettings />}
+      {tab === "proactive" && <ProactiveSettings onShowBriefing={onShowBriefing} />}
       {tab === "memory" && <MemorySettings />}
       {tab === "activity" && <ActivitySettings />}
 

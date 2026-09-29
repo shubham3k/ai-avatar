@@ -57,6 +57,19 @@ const bridge = {
     ipcRenderer.on("zara:hotkey", listener);
     return () => ipcRenderer.removeListener("zara:hotkey", listener);
   },
+  proactiveGetSettings: () => ipcRenderer.invoke("proactive:get-settings"),
+  proactiveUpdateSettings: (patch) => ipcRenderer.invoke("proactive:update-settings", patch),
+  proactiveBriefingNow: (kind) => ipcRenderer.invoke("proactive:briefing-now", kind),
+  onHoldChanged: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on("proactive:hold", listener);
+    return () => ipcRenderer.removeListener("proactive:hold", listener);
+  },
+  onBriefing: (callback) => {
+    const listener = (_event, briefing) => callback(briefing);
+    ipcRenderer.on("zara:briefing", listener);
+    return () => ipcRenderer.removeListener("zara:briefing", listener);
+  },
   onInboxChanged: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("inbox:changed", listener);

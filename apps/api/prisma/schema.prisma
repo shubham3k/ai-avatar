@@ -73,6 +73,12 @@ model Email {
   labels            String   @default("[]")
   sourceUrl         String?
   rawUpdatedAt      DateTime?
+  // ADR-006 M5 (sent mail only): analysed once for promises / "expects a
+  // reply"; follow-up bookkeeping so threads aren't re-checked constantly.
+  sentAnalyzedAt    DateTime?
+  expectsReply      Boolean?
+  followUpCheckedAt DateTime?
+  repliedAt         DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -186,6 +192,9 @@ model Reminder {
   text      String
   dueAt     DateTime
   remindAt  DateTime?
+  // ADR-006 M5: "promise" when Zara created it from a promise in sent mail.
+  origin        String?
+  sourceEmailId String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -283,4 +292,30 @@ model ActivityEntry {
   undoneAt  DateTime?
 
   @@index([userId, createdAt])
+}
+
+// ADR-006 M5: proactive behaviour settings plus "already delivered today"
+// markers (local YYYY-MM-DD) so a briefing/wrap-up is never sent twice.
+model ProactiveSettings {
+  id                      String   @id @default(cuid())
+  userId                  String   @unique
+  briefingEnabled         Boolean  @default(true)
+  briefingMode            String   @default("written") // written | spoken | both
+  briefingWeekdaysOnly    Boolean  @default(false)
+  wrapUpEnabled           Boolean  @default(true)
+  wrapUpTime              String   @default("18:00")
+  preMeetingBriefEnabled  Boolean  @default(true)
+  followUpEnabled         Boolean  @default(true)
+  followUpDays            Int      @default(3)
+  promiseRemindersEnabled Boolean  @default(true)
+  promiseRemindTime       String   @default("10:00")
+  promiseSameDayLeadHours Int      @default(2)
+  holdDuringFocus         Boolean  @default(true)
+  quietHoursEnabled       Boolean  @default(false)
+  quietHoursStart         String   @default("22:00")
+  quietHoursEnd           String   @default("07:00")
+  lastBriefingOn          String?
+  lastWrapUpOn            String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 }

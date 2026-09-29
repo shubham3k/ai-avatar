@@ -7,6 +7,7 @@ import {
   Menu,
   type MenuItemConstructorOptions,
   nativeImage,
+  powerMonitor,
   safeStorage,
   session,
   shell,
@@ -19,6 +20,8 @@ import { startEmbeddedApiServer, type EmbeddedApiServer } from "./api-server.js"
 import { ensureEncryptionKey, loadUserConfig, saveUserConfig } from "./app-config.js";
 import { formatClockTime } from "./format-time.js";
 import { createHotkeyManager, DEFAULT_CHAT_HOTKEY, type HotkeyManager } from "./hotkey.js";
+import { createFocusMonitor, type FocusMonitor } from "./focus-monitor.js";
+import { createProactiveScheduler, type ProactiveScheduler } from "./proactive-scheduler.js";
 import { runMigrations } from "./migrate.js";
 import { createPauseState } from "./pause-state.js";
 import { createSyncScheduler, type SyncScheduler } from "./sync-scheduler.js";
@@ -36,6 +39,8 @@ let mainWindow: BrowserWindow | null = null;
 let embeddedApi: EmbeddedApiServer | null = null;
 let syncScheduler: SyncScheduler | null = null;
 let hotkeys: HotkeyManager | null = null;
+let focusMonitor: FocusMonitor | null = null;
+let proactive: ProactiveScheduler | null = null;
 // Module-level, not local to whenReady(): Electron garbage-collects a Tray
 // with no other references, silently removing the icon from the system
 // tray — a bug that's invisible until someone actually looks for the icon,
@@ -246,6 +251,8 @@ app.whenReady().then(async () => {
       app.relaunch();
       app.exit(0);
     },
+    getHoldState: () => proactive?.hold() ?? { holding: false, reason: null },
+    onProactiveSettingsChanged: () => proactive?.userReturned(),
     getChatHotkey: () => hotkeys?.current() ?? null,
     changeChatHotkey: (accelerator) => {
       if (!hotkeys) return { ok: false, message: "Shortcuts aren't available." };
@@ -357,6 +364,33 @@ app.whenReady().then(async () => {
       },
     });
     syncScheduler.start();
+
+    // ADR-006 M5: hold pop-ups while the user is presenting, full-screen,
+    // or on a call (or in quiet hours), and deliver the morning briefing /
+    // wrap-up when they're at the PC.
+    const sendToWindow = (channel: string, payload: unknown) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+    };
+    focusMonitor = createFocusMonitor({
+      ownExecutablePath: process.execPath,
+      onChange: () => proactive?.hold(),
+      logger: { warn: (message) => console.warn(`[focus] ${message}`) },
+    });
+    proactive = createProactiveScheduler({
+      api: instrumentedApi,
+      focus: () => focusMonitor?.current() ?? { busy: false, reason: null },
+      idleSeconds: () => powerMonitor.getSystemIdleTime(),
+      isPaused: () => pauseState.isPaused(),
+      onHoldChange: (state) => sendToWindow("proactive:hold", state),
+      onBriefing: (briefing) => {
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show();
+        sendToWindow("zara:briefing", briefing);
+      },
+      logger: { error: (message, err) => console.error(`[proactive] ${message}`, err) },
+    });
+    proactive.start();
+    powerMonitor.on("unlock-screen", () => proactive?.userReturned());
+    powerMonitor.on("resume", () => proactive?.userReturned());
   }
 });
 
@@ -370,6 +404,8 @@ app.on("will-quit", () => {
 
 app.on("before-quit", (event) => {
   syncScheduler?.stop();
+  proactive?.stop();
+  focusMonitor?.stop();
   tray?.destroy();
   tray = null;
   if (!embeddedApi) return;

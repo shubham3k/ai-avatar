@@ -855,4 +855,83 @@ describe("desktop overlay", () => {
       expect(screen.queryByTestId("chat-panel")).toBeNull();
     });
   });
+
+  describe("proactive (ADR-006 M5)", () => {
+    const lowItem = { ...secondIntervention, priority: "medium" as const };
+
+    function withPushes(overrides: Partial<Bridge> = {}) {
+      const pushes: { hold?: (state: unknown) => void; briefing?: (b: unknown) => void } = {};
+      const bridge = installBridge({
+        fetchInbox: vi.fn().mockResolvedValue({ items: [intervention, lowItem] }),
+        onHoldChanged: vi.fn((cb: (state: unknown) => void) => {
+          pushes.hold = cb;
+          return () => undefined;
+        }),
+        onBriefing: vi.fn((cb: (b: unknown) => void) => {
+          pushes.briefing = cb;
+          return () => undefined;
+        }),
+        ...overrides,
+      });
+      return { bridge, pushes };
+    }
+
+    it("holds cards while the user is busy: a count in the dock and one quiet line per urgent item", async () => {
+      const { pushes } = withPushes();
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+
+      act(() => pushes.hold?.({ holding: true, reason: "presentation" }));
+
+      await waitFor(() => expect(screen.queryByTestId("intervention-card")).toBeNull());
+      expect(screen.getByText("⏸ 2 waiting")).toHaveAttribute("title", expect.stringMatching(/while you present/));
+      const notices = screen.getAllByTestId("quiet-notice");
+      expect(notices).toHaveLength(1);
+      expect(notices[0]).toHaveTextContent(intervention.title);
+
+      act(() => pushes.hold?.({ holding: false, reason: null }));
+      expect(await screen.findByTestId("intervention-card")).toBeInTheDocument();
+      expect(screen.queryByText(/⏸/)).toBeNull();
+    });
+
+    it("a written briefing opens as a chat", async () => {
+      const chatMessages = vi.fn().mockResolvedValue({
+        messages: [{ id: "m1", role: "assistant", content: "Good morning! Budget review at 11.", provider: "openai" }],
+      });
+      const { pushes } = withPushes({ chatMessages });
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+
+      act(() =>
+        pushes.briefing?.({ delivered: true, kind: "morning", conversationId: "c9", title: "Morning briefing", text: "x", mode: "written" }),
+      );
+
+      expect(await screen.findByText("Good morning! Budget review at 11.")).toBeInTheDocument();
+      expect(chatMessages).toHaveBeenCalledWith("c9");
+    });
+
+    it("a spoken-only briefing is read aloud without opening the chat", async () => {
+      const chatSpeak = vi.fn().mockResolvedValue({ ok: true, value: "bXAz" });
+      vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() => Promise.resolve());
+      vi.spyOn(window.HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+      const { pushes } = withPushes({ chatSpeak });
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+
+      act(() =>
+        pushes.briefing?.({
+          delivered: true,
+          kind: "wrap_up",
+          conversationId: "c10",
+          title: "Wrap-up",
+          text: "That's a wrap for today. Nothing left open.",
+          mode: "spoken",
+        }),
+      );
+
+      await waitFor(() => expect(chatSpeak).toHaveBeenCalled());
+      expect(screen.queryByTestId("chat-panel")).toBeNull();
+      vi.restoreAllMocks();
+    });
+  });
 });
