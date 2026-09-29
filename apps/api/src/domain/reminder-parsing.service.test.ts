@@ -86,6 +86,7 @@ describe("reminder parsing service — success", () => {
       expect.objectContaining({
         input: JSON.stringify({ now: "2026-09-25T15:40:00+05:30 (Friday)", text: "remind me at 4pm" }),
         schemaName: "reminder_parse_v2",
+        maxOutputTokens: 300,
       }),
     );
   });
@@ -150,6 +151,18 @@ describe("reminder parsing service — provider failures", () => {
 
     expect(await service.parse("x", NOW)).toMatchObject({ ok: true });
     expect(createStructuredCompletion).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a rate-limit refusal", async () => {
+    const createStructuredCompletion = vi
+      .fn()
+      .mockRejectedValue(new GroqProviderError("unavailable", "busy", "HTTP 429 rate_limit_exceeded"));
+    const service = createReminderParsingService({
+      provider: makeProvider({ createStructuredCompletion }),
+    });
+
+    expect(await service.parse("x", NOW)).toMatchObject({ ok: false, code: "provider_error" });
+    expect(createStructuredCompletion).toHaveBeenCalledTimes(1);
   });
 
   it("does not retry a rejected key", async () => {

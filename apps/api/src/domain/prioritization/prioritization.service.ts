@@ -49,6 +49,9 @@ export function createPrioritizationService(dependencies?: { provider?: GroqProv
           input: JSON.stringify(input),
           schemaName: `prioritization_result_${PRIORITIZATION_PROMPT_VERSION}`,
           jsonSchema: buildPrioritizationJsonSchema([...knownIds]),
+          // Ranked situations with one-line reasons; an oversized reply fails Zod
+          // validation and is reported like any other malformed output.
+          maxOutputTokens: 800,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Groq request failed.";

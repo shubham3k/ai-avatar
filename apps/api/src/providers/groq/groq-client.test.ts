@@ -43,6 +43,8 @@ describe("groq client", () => {
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         model: "qwen/qwen3-32b",
+        // Always an explicit cap under Groq's free-plan 1,000 output tokens/minute.
+        max_completion_tokens: 800,
         messages: [
           { role: "system", content: "system prompt" },
           { role: "user", content: "user prompt" },

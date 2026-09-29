@@ -1,0 +1,147 @@
+# ADR-006: Zara — a Local-First Personal AI Agent
+
+**Status:** Accepted (design discussion Sept 28, 2026; development started Sept 29, 2026 on branch `zara-agent`)
+**Supersedes, for the next phase only:** the Phase-1 scope rules in `AGENTS.md` that limit the product to read-only Google scopes and a fixed, non-conversational workflow. Every other `AGENTS.md` rule still applies — notably: LLM calls only in the API layer, LLM output Zod-validated before any state change, and the model never executing arbitrary URLs/SQL/shell/browser actions.
+
+## Context
+
+The app today is a proactive notifier: background Gmail/Calendar sync, deterministic signal detection, one Groq-based prioritization step, reminders (typed or spoken), and a bottom-right overlay (dock + intervention cards). The user wants it to become a personal AI agent — something they can **chat and talk with**, that **remembers**, and that can **act through tools and MCP** — while staying **local-first**.
+
+Constraints found along the way:
+
+- Groq's free plan cannot sustain agent conversations (rejected even single reminder requests: "output tokens per minute: Limit 1000, Requested 2048").
+- The app runs entirely on the user's PC (embedded API, local SQLite, no server of ours). There is no cloud component and this ADR does not add one.
+- The agent will read untrusted content (emails, documents, web pages, MCP results), so prompt injection is the primary safety risk.
+
+## Decision
+
+### 1. Product principle: local-first, minimum-necessary cloud
+
+- **Stored only on the user's PC:** emails, calendar, chats, memory, notes, documents, search/vector index, activity log, settings, credentials (encrypted via `safeStorage`).
+- **Search runs locally** (local embeddings model + SQLite full-text/vector search). The LLM never receives a mailbox or document folder wholesale — only the handful of snippets needed for the current answer.
+- **Never sent to any provider and never stored in memory:** passwords, PINs, OTPs, security answers, bank/card numbers, government ID numbers (Aadhaar, PAN, passport); health details unless the user explicitly asks Zara to remember them. A deterministic redaction pass runs before any LLM call.
+- OpenAI requests set `store: false`. (OpenAI's API docs, Sept 2026: API data is not used for training by default; abuse-monitoring logs are kept up to 30 days; zero retention requires OpenAI approval.)
+- A fully local model (Ollama) remains on the "later" list.
+
+### 2. The brain
+
+| Job | Model (default) | Price at decision time (per OpenAI pricing page, Sept 28, 2026) |
+| --- | --- | --- |
+| Chat + tool use, background jobs | `gpt-6-luna` | $0.10 in / $0.01 cached in / $0.50 out per 1M tokens |
+| Speech → text | `gpt-4o-mini-transcribe` | ≈ $0.003 / minute |
+| Zara's voice | `gpt-4o-mini-tts` (Windows voices as a free option) | $0.60 / 1M text tokens + $12 / 1M audio tokens |
+| Fallback (outage/overload only) | Groq `openai/gpt-oss-120b` + Groq Whisper | ≈ $0.15 / $0.60 per 1M (third-party sources — verify) |
+
+- `gpt-6-luna` was chosen over the cheaper `gpt-5-nano` because the user's requirement is that the model reliably handles multi-step tool use; luna is the cheapest model in OpenAI's current flagship family and supports function calling, structured outputs, streaming, and prompt caching. `gpt-5-nano` and `gpt-6-sol` (upgrade path, ~20× luna) stay selectable in Settings.
+- Estimated cost for typical use (50 chats/day, ~100 background calls/day, ~20 voice turns/day): **≈ $5–6 / month**; heavy use ≈ $15–20. The user sets a hard spending cap in the OpenAI dashboard; Settings shows an estimated "usage this month".
+- **Fallback rules:** Groq takes over any job (chat with tools included) on OpenAI outage, overload, or rate limit — never on an invalid/rejected OpenAI key (that is reported to the user). Replies produced by the fallback are labelled "answered by backup (Groq)". The Groq key is optional; without it there is no fallback.
+- All provider calls stay behind the provider-adapter pattern (`apps/api/src/providers/*`), so models and providers remain swappable.
+- Prices change; they are re-verified at implementation time and never hard-coded as facts in UI copy.
+
+### 3. Conversation (Zara)
+
+- The assistant is named **Zara**; tone friendly and concise.
+- The dock's 💬 panel grows into a conversation thread (small panel above the dock). All chats are stored permanently; a **New chat** button starts fresh; a 🕘 history list reopens old chats; Zara can recall past chats.
+- The panel auto-hides after 30 s of inactivity (configurable); the conversation is kept.
+- Type → Zara writes. Speak → Zara speaks (and writes).
+- Reminder/email alerts remain separate cards (with the full character); the chat header shows a small Zara avatar.
+
+### 4. Memory and activity log
+
+- Zara decides what is worth remembering (facts about the user, people, preferences) and says so ("Noted: …"). Every fact is editable/deletable from a **Memory** page in Settings or by telling Zara it's wrong.
+- Chats are kept forever; Settings offers delete-chat and delete-all.
+- **Incognito chat**: not stored, nothing learned.
+- **Activity log**: every action Zara takes — reminders, memory writes/deletes, drafts, sends, calendar changes, MCP tool calls, routine runs, and which model answered — timestamped, kept forever (deletable), with undo where the action is reversible.
+
+### 5. Voice
+
+- Global hotkey opens Zara from anywhere; default **Ctrl+Shift+Space**, configurable (Ctrl+Space and Alt+Space avoided: they collide with Windows input-language switching and the window menu).
+- Click-to-talk (default) and hands-free (voice-activity detection) — both in Settings. Speaking or typing interrupts Zara's speech immediately.
+- English, Hindi, Hinglish; Zara replies in the user's language and script. Voice chosen in Settings with preview.
+
+### 6. Proactive behaviour
+
+- Morning briefing on first unlock of the day (written by default; spoken/both optional; every day by default, weekdays-only optional).
+- Pre-meeting summary on the existing 10-minute meeting card (attendees, recent emails with them, open items).
+- Follow-up nudges on unanswered sent emails (default 3 days, configurable).
+- Promises the user made in sent email ("I'll send it by Friday") are reminded automatically (default the day before at 10:00, or 2 hours before if due today), configurable; every auto-created reminder appears in the activity log.
+- Pop-ups are held during full-screen apps, presentations, and video calls; the dock shows a waiting count. Urgent items (meeting about to start, reminders marked important) show a small quiet notice even then.
+- End-of-day wrap-up (default 18:00, configurable). Optional quiet hours, off by default.
+
+### 7. Recall
+
+- Sources: synced email and calendar, chat history, memory, notes, and a dedicated documents folder (default `Documents\Zara`; PDF, Word, text, Markdown; auto-indexed on change). Image-only scanned PDFs are out of scope for now.
+- Email history: 1 month to start (sync window widened from ~14 days), 3 months if needed.
+- Notes are plain Markdown files the user owns; Zara acts on them when useful (e.g. offers a reminder).
+- People memory (profiles of frequent contacts) ships as an experimental feature that can be switched off.
+
+### 8. Actions (with approval)
+
+- First actions: email (draft, reply, send) and calendar (create, move, cancel). Requires one Google re-consent adding send, calendar-write, and Drive-read scopes.
+- **Every action that leaves the PC shows an approval card** with the exact effect (recipient and text; calendar before/after and who gets notified) and Approve / Edit / Cancel.
+- Email sends require a click (never voice approval) and wait **30 s** ("Sending… [Undo]") before actually sending. Own-calendar-only events may be approved by voice.
+- A narrow "don't ask again" may be added later for specific repeated actions; **sending email always asks — a permanent rule.**
+- Zara never acts because content she read told her to; actions originate only from the user's request. New recipients get a warning on the card. All approvals, edits, and cancellations are logged.
+- Writing style: user-provided style guide/samples in Settings, plus learning from sent mail and from the user's edits to drafts.
+
+### 9. MCP
+
+- Zara is an MCP client (official TypeScript SDK). An **Add connection** screen in Settings offers presets and custom servers; tokens are stored encrypted.
+- Local servers preferred; Node-based servers run on Electron's bundled Node (no separate install).
+- **Strict trust:** every tool starts ask-first, including read-only ones; only the user can mark an individual read-only tool as trusted; tools that change things always ask; destructive tools always ask with a warning; file access is limited to user-chosen folders; instructions found inside tool results are never followed; every call is logged.
+- Order: local files → Google Drive (built in via the existing Google connection) → web search (search-provider key) → GitHub → Notion → Slack (may need workspace-admin approval) → browser (last; read-only first — no forms, logins, or submits).
+
+### 10. Routines
+
+- Created in plain language ("every Monday at 9, summarize unanswered emails"). Read-and-report routines run automatically; routines that take an action ask for approval on every run. A Routines list in Settings (pause, edit, delete).
+- Learning from behaviour (Done/Snooze/ignore patterns) is postponed; when built it ships with a "What Zara has learned" review/undo page.
+
+## Architecture
+
+```
+Electron main   hotkey · tray · idle/lock/full-screen detection · scheduler · MCP client host
+Renderer        dock · chat panel · approval cards · intervention cards · Settings pages
+Embedded API    agent runtime (loop: model → tool call → validated execution → model)
+  providers/    openai (chat, stt, tts) · groq (fallback) · google (existing)
+  domain/       tools (static, Zod-typed, risk-tiered) · memory · recall · activity log ·
+                approvals · routines · existing signals/reminders pipeline
+  db/           SQLite via Prisma (+ FTS5, sqlite-vec) — new tables for conversations,
+                messages, memory facts, activity entries, approvals, notes, documents,
+                MCP connections, routines
+```
+
+- Tools are a static, typed list (no dynamic registry beyond MCP-discovered tools), each with a risk tier: **read** (auto), **local write** (auto, undoable, logged), **external** (approval card). MCP tools are mapped into the same tiers under the strict rules above.
+- The agent loop runs in the API layer only; the renderer never sees provider keys.
+- Model output is Zod-validated before any tool executes or any state changes.
+
+## Milestones (each ends with tests, typecheck, lint, and a user-tested build on request)
+
+| # | Milestone | Outcome |
+| --- | --- | --- |
+| 0 | Housekeeping | Checkpoint commit on `main` (done: `3a96d64`), branch `zara-agent`, Groq output-token cap, clean-PC install test (user) |
+| 1 | Brain | OpenAI key + model picker + usage in Settings; reminders, voice, and prioritization on OpenAI; Groq fallback |
+| 2 | Chat | Conversation panel, agent loop with read tools + reminder tools, streaming, New chat, history, auto-hide |
+| 3 | Memory + activity log | Facts, memory page, incognito, redaction, activity log with undo |
+| 4 | Voice | Hotkey, spoken replies, voice picker, hands-free, interruption, Hindi/Hinglish |
+| 5 | Proactive | Briefings, pre-meeting summary, follow-ups, promises, held pop-ups, wrap-up |
+| 6 | Recall | Local index over email/chats/notes/`Documents\Zara`, notes, people memory (experimental) |
+| 7 | Actions | Google re-consent, approval cards, email send with 30 s undo, calendar actions, writing style |
+| 8 | MCP | Add-connection screen, strict trust, servers in the order above |
+| 9 | Routines | Plain-language routines, Routines page |
+
+Development happens on `zara-agent`; it is merged into `main` when complete.
+
+## Consequences
+
+- The product moves from a fixed pipeline to a conversational agent; `AGENTS.md`'s Phase-1 scope rules are superseded for this phase (to be updated in that file when Milestone 7 introduces write scopes).
+- Recurring cost moves from zero (Groq free) to a small paid OpenAI bill, capped by the user.
+- Some user content (the minimum per answer) leaves the PC for OpenAI; everything else stays local.
+- Safety depends on the approval layer and the "never act on read content" rule being enforced in code, not just prompts — these get dedicated tests.
+
+## Alternatives considered
+
+- **Claude (Anthropic API)** — strongest tool use and native MCP support; not chosen, user preferred OpenAI.
+- **Groq paid** — fastest and cheap, less reliable on long tool chains; kept as fallback.
+- **Gemini** — cheap/free tier; data-use terms on the free tier conflict with local-first.
+- **OpenAI Realtime voice** — lowest latency, higher cost and provider lock-in; the STT → LLM → TTS pipeline was chosen, Realtime left as a later upgrade.
+- **Fully local (Ollama) as the main brain** — best privacy, clearly weaker tool use today; kept as a later privacy mode.

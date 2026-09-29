@@ -16,7 +16,19 @@ export interface StructuredCompletionRequest {
   input: string;
   schemaName: string;
   jsonSchema: Record<string, unknown>;
+  /** Upper bound on the reply length; defaults to DEFAULT_MAX_OUTPUT_TOKENS. */
+  maxOutputTokens?: number;
 }
+
+/**
+ * Groq budgets a request against its output-tokens-per-minute limit using
+ * the *maximum* reply length, not the actual one. Left unset, the model's
+ * default (2048) exceeded the free plan's 1,000/minute limit, so every
+ * request was rejected with 429 rate_limit_exceeded (found Sept 28, 2026).
+ * Always sending an explicit cap below that limit fixes it; callers pass a
+ * tighter one sized to their schema.
+ */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 800;
 
 export interface TranscriptionRequest {
   audio: Buffer;
@@ -146,6 +158,7 @@ export function createGroqProvider(overrides?: {
             { role: "system", content: request.instructions },
             { role: "user", content: request.input },
           ],
+          max_completion_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
           response_format: {
             type: "json_schema",
             json_schema: {

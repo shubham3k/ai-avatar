@@ -78,6 +78,8 @@ export function createReminderParsingService(dependencies?: { provider?: GroqPro
         input: JSON.stringify({ now: formatLocalNow(now), text }),
         schemaName: `reminder_parse_${REMINDER_PARSE_PROMPT_VERSION}`,
         jsonSchema: buildReminderParseJsonSchema(),
+        // The intent JSON is ~60–80 tokens; ample headroom, well under Groq's per-minute budget.
+        maxOutputTokens: 300,
       };
 
       let raw: string | null = null;
@@ -94,8 +96,11 @@ export function createReminderParsingService(dependencies?: { provider?: GroqPro
           if (kind === "model_unavailable") {
             return failure("model_unavailable", groqFailureDetail(err));
           }
-          if (attempt >= MAX_PROVIDER_ATTEMPTS) {
-            return failure("provider_error", groqFailureDetail(err));
+          // A rate-limit refusal (429) won't clear within an immediate retry —
+          // retrying just spends the per-minute budget again.
+          const detail = groqFailureDetail(err);
+          if (attempt >= MAX_PROVIDER_ATTEMPTS || detail?.startsWith("HTTP 429")) {
+            return failure("provider_error", detail);
           }
         }
       }
