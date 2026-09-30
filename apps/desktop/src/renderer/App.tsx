@@ -1,14 +1,34 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dock } from "./components/Dock";
 import { InterventionOverlay } from "./components/InterventionOverlay";
 import { InterventionStatus } from "./components/InterventionStatus";
-import { ReminderComposer } from "./components/ReminderComposer";
+import { ChatPanel } from "./components/ChatPanel";
 import { Settings } from "./components/Settings";
-import type { InterventionActionSpec } from "./lib/intervention-actions";
+import { conversationIdOf, type InterventionActionSpec } from "./lib/intervention-actions";
+import { getChatAutoHideSeconds } from "./lib/preferences";
 import { useInterventionPolling } from "./state/use-intervention-polling";
-import { useReminderComposer } from "./state/use-reminder-composer";
+import { useZaraChat } from "./state/use-zara-chat";
+import { useActionCards } from "./state/use-action-cards";
 import { useReportContentSize } from "./state/use-report-content-size";
 import { useSetupStatus } from "./state/use-setup-status";
+import { holdLabel, useHoldState } from "./state/use-hold-state";
+
+/** How long an unanswered briefing stays open before auto-hide (it's longer than a chat reply). */
+const BRIEFING_MIN_VISIBLE_SECONDS = 120;
+
+interface BriefingEvent {
+  conversationId: string;
+  text: string;
+  mode: "written" | "spoken" | "both";
+}
+
+function readBriefing(raw: unknown): BriefingEvent | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  if (typeof value.conversationId !== "string" || typeof value.text !== "string") return null;
+  const mode = value.mode === "spoken" || value.mode === "both" ? value.mode : "written";
+  return { conversationId: value.conversationId, text: value.text, mode };
+}
 
 const DEFAULT_SNOOZE_MINUTES = 60;
 const STATUS_MESSAGE_DURATION_MS = 1500;
@@ -25,8 +45,36 @@ export default function App() {
   const [checkError, setCheckError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reminders = useReminderComposer();
+  // M7: approval cards live beside the chat; Zara's replies add them as they're created.
+  const actionCards = useActionCards();
+  const chat = useZaraChat({ onAction: actionCards.upsert });
+  const refreshCards = actionCards.refresh;
+  // M8: once the user approves a connection-tool card, Zara carries on with its result.
+  const { approve: approveCard } = actionCards;
+  const sendToZara = chat.send;
+  const cardsForPanel = useMemo(
+    () => ({
+      ...actionCards,
+      approve: async (id: string, payload?: Record<string, unknown>, options?: { trustTool?: boolean }) => {
+        const card = actionCards.cards.find((candidate) => candidate.id === id);
+        const error = await approveCard(id, payload, options);
+        if (!error && card?.kind === "mcp_call") {
+          void sendToZara(`✓ Approved ${String(card.payload.connectionName ?? "")} · ${String(card.payload.tool ?? "")}`, { continueActionId: id });
+        }
+        return error;
+      },
+    }),
+    [actionCards, approveCard, sendToZara],
+  );
   const [chatOpen, setChatOpen] = useState(false);
+  // M4: bumped by the global hotkey so the chat box gets the cursor.
+  const [chatFocusSignal, setChatFocusSignal] = useState(0);
+  // M5: pop-ups held while presenting / full-screen / on a call / quiet hours.
+  const hold = useHoldState();
+  const [briefingOpen, setBriefingOpen] = useState(false);
+  useEffect(() => {
+    if (chatOpen) void refreshCards();
+  }, [chatOpen, refreshCards]);
 
   // A brief, self-clearing confirmation after an action succeeds — kept
   // independent of the interventions list state so it still shows even
@@ -153,32 +201,112 @@ export default function App() {
     }
   }, [intervention]);
 
+  // M9: "Read it" on a routine's card opens its report in the chat (and clears the card).
+  const openConversationInChat = chat.openConversation;
+  const handleRead = useCallback(async () => {
+    const conversationId = intervention ? conversationIdOf(intervention) : null;
+    if (!conversationId) return;
+    setShowSettings(false);
+    await openConversationInChat(conversationId);
+    setChatOpen(true);
+    void handleDone();
+  }, [intervention, openConversationInChat, handleDone]);
+
   const handleAction = useCallback(
     (actionId: InterventionActionSpec["id"]) => {
-      if (actionId === "done") void handleDone();
+      if (actionId === "read") void handleRead();
+      else if (actionId === "done") void handleDone();
       else if (actionId === "remind") void handleSnooze();
       else if (actionId === "open") void handleOpen();
     },
-    [handleDone, handleSnooze, handleOpen],
+    [handleDone, handleSnooze, handleOpen, handleRead],
   );
 
-  const clearReminderFeedback = reminders.clearFeedback;
+  const { stopListening, stopSpeaking } = chat;
+  // Closing the panel also closes the mic and silences Zara.
   const closeChat = useCallback(() => {
     setChatOpen(false);
-    clearReminderFeedback();
-  }, [clearReminderFeedback]);
+    setBriefingOpen(false);
+    stopListening();
+    stopSpeaking();
+  }, [stopListening, stopSpeaking]);
+  const toggleMic = chat.toggleRecording;
+  // Speaking to Zara opens her chat, so the transcript and reply are visible.
+  const handleMic = useCallback(() => {
+    setShowSettings(false);
+    setChatOpen(true);
+    toggleMic();
+  }, [toggleMic]);
+
+  // M4: the global hotkey (Ctrl+Shift+Space by default). First press opens
+  // Zara's chat with the cursor in the box (and silences her); pressing it
+  // while the chat is open starts talking, and again stops and sends.
+  // Ignored on screens where chat can't run yet.
+  const chatAvailable = !startupError && !!setupStatus && setupStatus.aiKeyConfigured && setupStatus.googleConnected;
+  const hotkeyStateRef = useRef({ chatOpen, chatAvailable, handleMic, stopSpeaking });
+  hotkeyStateRef.current = { chatOpen, chatAvailable, handleMic, stopSpeaking };
+  useEffect(() => {
+    const unsubscribe = window.desktopAPI?.onHotkey?.(() => {
+      const state = hotkeyStateRef.current;
+      if (!state.chatAvailable) return;
+      if (state.chatOpen) {
+        state.handleMic();
+        return;
+      }
+      state.stopSpeaking();
+      setShowSettings(false);
+      setChatOpen(true);
+      setChatFocusSignal((n) => n + 1);
+    });
+    return () => unsubscribe?.();
+  }, []);
+
+  // M5: the morning briefing / wrap-up arrives from the main process (or
+  // Settings' "Show now"). Written → open it as a chat; spoken → read it
+  // aloud; both → both. It's saved as a chat either way (🕘 history).
+  const { openConversation, speakText } = chat;
+  const showBriefing = useCallback(
+    (raw: unknown) => {
+      const briefing = readBriefing(raw);
+      if (!briefing) return;
+      if (briefing.mode !== "spoken") {
+        setShowSettings(false);
+        void openConversation(briefing.conversationId);
+        setChatOpen(true);
+        setBriefingOpen(true);
+      }
+      if (briefing.mode !== "written") speakText(briefing.text);
+    },
+    [openConversation, speakText],
+  );
+  const showBriefingRef = useRef(showBriefing);
+  showBriefingRef.current = showBriefing;
+  useEffect(() => {
+    const unsubscribe = window.desktopAPI?.onBriefing?.((raw) => showBriefingRef.current(raw));
+    return () => unsubscribe?.();
+  }, []);
 
   // The persistent bottom-right control pill, rendered last on every screen,
-  // with the reminder composer (💬 text box / 🎤 status bubble) directly
-  // above it. "last checked" reflects the scheduled tick, the tray's Check
-  // now, and the dock's own button, whichever ran most recently (see
-  // index.ts's performCheckNow); useSetupStatus re-renders every 15s, which
-  // keeps the relative time roughly fresh. Screens where nothing can run yet
-  // (startup error, get-started) get the gear only.
+  // with Zara's chat panel (ADR-006 M2) directly above it when open. "last
+  // checked" reflects the scheduled tick, the tray's Check now, and the
+  // dock's own button, whichever ran most recently (see index.ts's
+  // performCheckNow); useSetupStatus re-renders every 15s, which keeps the
+  // relative time roughly fresh. Screens where nothing can run yet (startup
+  // error, get-started) get the gear only.
   const renderDock = (fullControls: boolean) => (
     <>
-      {fullControls && (
-        <ReminderComposer composer={reminders} chatOpen={chatOpen} onClose={closeChat} />
+      {fullControls && chatOpen && (
+        <ChatPanel
+          chat={chat}
+          onClose={closeChat}
+          autoHideSeconds={
+            briefingOpen && getChatAutoHideSeconds() > 0
+              ? Math.max(getChatAutoHideSeconds(), BRIEFING_MIN_VISIBLE_SECONDS)
+              : getChatAutoHideSeconds()
+          }
+          focusSignal={chatFocusSignal}
+          cards={cardsForPanel}
+        />
       )}
       <Dock
         onToggleSettings={() => setShowSettings((prev) => !prev)}
@@ -186,9 +314,9 @@ export default function App() {
         onCheckNow={fullControls ? () => void handleCheckNow() : undefined}
         checking={checking}
         lastCheckedAt={fullControls ? (setupStatus?.lastCheckedAt ?? null) : null}
-        onToggleMic={fullControls ? reminders.toggleRecording : undefined}
-        recording={reminders.recording}
-        micBusy={reminders.transcribing}
+        onToggleMic={fullControls ? handleMic : undefined}
+        recording={chat.recording || chat.handsFree}
+        micBusy={chat.transcribing}
         onToggleChat={
           fullControls
             ? () => {
@@ -202,6 +330,8 @@ export default function App() {
             : undefined
         }
         chatOpen={chatOpen}
+        waitingCount={fullControls && hold.holding ? interventions.length : 0}
+        heldLabel={holdLabel(hold.reason)}
       />
     </>
   );
@@ -210,6 +340,7 @@ export default function App() {
     return (
       <div className="overlay">
         <Settings
+          onShowBriefing={showBriefing}
           onClose={() => {
             setShowSettings(false);
             void refreshSetupStatus();
@@ -243,7 +374,7 @@ export default function App() {
   // until both are done. `setupStatus === null` is the brief moment before
   // the first status load resolves; render nothing rather than flash the
   // wrong screen.
-  if (setupStatus && (!setupStatus.groqKeyConfigured || !setupStatus.googleConnected)) {
+  if (setupStatus && (!setupStatus.aiKeyConfigured || !setupStatus.googleConnected)) {
     return (
       <div className="overlay">
         <Settings />
@@ -268,9 +399,20 @@ export default function App() {
   // visible, and the window itself shrinks to just its size (see
   // useReportContentSize). A new intervention or reminder reintroduces the
   // card the moment it exists.
-  if (interventions.length === 0) {
+  // M5: while held, cards wait (the dock counts them); only urgent ones
+  // (a meeting about to start, high-priority alerts) get one quiet line.
+  if (interventions.length === 0 || hold.holding) {
+    const urgent = hold.holding
+      ? interventions.filter((item) => item.priority === "high" || item.priority === "critical").slice(0, 2)
+      : [];
     return (
       <div className="overlay overlay-idle">
+        {urgent.map((item) => (
+          <div key={item.id} className="quiet-notice" role="status" data-testid="quiet-notice">
+            {item.title}
+            {item.message && item.message !== item.title ? ` — ${item.message}` : ""}
+          </div>
+        ))}
         {checkError && (
           <div className="check-error-banner" role="alert">
             {checkError}

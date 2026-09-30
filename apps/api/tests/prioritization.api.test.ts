@@ -5,8 +5,10 @@ import { prisma } from "../src/lib/prisma.js";
 
 const createStructuredCompletion = vi.fn();
 
-vi.mock("../src/providers/groq/groq-client.js", () => ({
-  createGroqProvider: () => ({ createStructuredCompletion }),
+// Every domain service gets its provider from createLlmProvider (OpenAI with
+// Groq fallback, ADR-006) — mock that single seam.
+vi.mock("../src/providers/llm/create-llm-provider.js", () => ({
+  createLlmProvider: () => ({ createStructuredCompletion, transcribeAudio: vi.fn() }),
 }));
 
 async function cleanDb() {

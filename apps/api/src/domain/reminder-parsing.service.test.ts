@@ -33,6 +33,7 @@ function makeProvider(overrides: Partial<GroqProvider> = {}): GroqProvider {
   return {
     createStructuredCompletion: vi.fn().mockResolvedValue(intentJson()),
     transcribeAudio: vi.fn(),
+    streamChat: vi.fn(),
     ...overrides,
   };
 }
@@ -86,6 +87,7 @@ describe("reminder parsing service — success", () => {
       expect.objectContaining({
         input: JSON.stringify({ now: "2026-09-25T15:40:00+05:30 (Friday)", text: "remind me at 4pm" }),
         schemaName: "reminder_parse_v2",
+        maxOutputTokens: 300,
       }),
     );
   });
@@ -119,24 +121,26 @@ describe("reminder parsing service — success", () => {
 describe("reminder parsing service — provider failures", () => {
   it("maps a missing key to not_configured", async () => {
     const result = await serviceRejecting(
-      new GroqProviderError("not_configured", "Groq is not configured. Set GROQ_API_KEY."),
+      new GroqProviderError("not_configured", "OpenAI is not configured.", null, "openai"),
     ).parse("x", NOW);
     expect(result).toEqual({
       ok: false,
       code: "not_configured",
-      message: REMINDER_FAILURE_MESSAGES.not_configured,
+      message: "Add your OpenAI API key in Settings to use reminders.",
     });
   });
 
-  it("maps a rejected key to auth_rejected with an actionable message", async () => {
-    const result = await serviceRejecting(
-      new GroqProviderError("auth_rejected", "Groq rejected the request credentials."),
-    ).parse("x", NOW);
-    expect(result).toEqual({
-      ok: false,
-      code: "auth_rejected",
-      message: "Your Groq API key was rejected. Update it in Settings.",
-    });
+  it("maps a rejected key to auth_rejected, naming the provider that rejected it", async () => {
+    for (const [provider, label] of [["openai", "OpenAI"], ["groq", "Groq"]] as const) {
+      const result = await serviceRejecting(
+        new GroqProviderError("auth_rejected", "rejected", "HTTP 401", provider),
+      ).parse("x", NOW);
+      expect(result).toEqual({
+        ok: false,
+        code: "auth_rejected",
+        message: `Your ${label} API key was rejected. Update it in Settings.`,
+      });
+    }
   });
 
   it("retries a transient failure once, then succeeds", async () => {
@@ -150,6 +154,18 @@ describe("reminder parsing service — provider failures", () => {
 
     expect(await service.parse("x", NOW)).toMatchObject({ ok: true });
     expect(createStructuredCompletion).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a rate-limit refusal", async () => {
+    const createStructuredCompletion = vi
+      .fn()
+      .mockRejectedValue(new GroqProviderError("unavailable", "busy", "HTTP 429 rate_limit_exceeded"));
+    const service = createReminderParsingService({
+      provider: makeProvider({ createStructuredCompletion }),
+    });
+
+    expect(await service.parse("x", NOW)).toMatchObject({ ok: false, code: "provider_error" });
+    expect(createStructuredCompletion).toHaveBeenCalledTimes(1);
   });
 
   it("does not retry a rejected key", async () => {
@@ -167,7 +183,7 @@ describe("reminder parsing service — provider failures", () => {
   it("reports a retired/unknown model distinctly, without retrying", async () => {
     const createStructuredCompletion = vi
       .fn()
-      .mockRejectedValue(new GroqProviderError("model_unavailable", "model not found"));
+      .mockRejectedValue(new GroqProviderError("model_unavailable", "model not found", "HTTP 404", "openai"));
     const service = createReminderParsingService({
       provider: makeProvider({ createStructuredCompletion }),
     });
@@ -175,19 +191,21 @@ describe("reminder parsing service — provider failures", () => {
     expect(await service.parse("x", NOW)).toEqual({
       ok: false,
       code: "model_unavailable",
-      message: REMINDER_FAILURE_MESSAGES.model_unavailable,
+      message:
+        "The OpenAI model this app is set to use isn't available to your key. Choose another model in Settings. (OpenAI: HTTP 404)",
     });
     expect(createStructuredCompletion).toHaveBeenCalledTimes(1);
   });
 
-  it("appends Groq's status/code to a provider error so it can be diagnosed from the screen", async () => {
+  it("appends the failing provider's status/code so it can be diagnosed from the screen", async () => {
     const result = await serviceRejecting(
-      new GroqProviderError("unavailable", "busy", "HTTP 429 rate_limit_exceeded"),
+      new GroqProviderError("unavailable", "busy", "HTTP 429 rate_limit_exceeded", "groq"),
     ).parse("x", NOW);
     expect(result).toEqual({
       ok: false,
       code: "provider_error",
-      message: `${REMINDER_FAILURE_MESSAGES.provider_error} (Groq: HTTP 429 rate_limit_exceeded)`,
+      message:
+        "The AI service is busy or unreachable right now. Try again in a moment. (Groq: HTTP 429 rate_limit_exceeded)",
     });
   });
 

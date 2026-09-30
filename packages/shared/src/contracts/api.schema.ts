@@ -408,6 +408,9 @@ export const createReminderFromVoiceRequestSchema = z.object({
   // few hundred KB at most.
   audioBase64: z.string().min(1).max(10_000_000),
   mimeType: z.string().min(1),
+  // Measured by the recorder; only used to estimate transcription cost
+  // (billed per minute). Optional so older clients still validate.
+  durationSeconds: z.number().min(0).max(600).optional(),
 });
 export type CreateReminderFromVoiceRequest = z.infer<
   typeof createReminderFromVoiceRequestSchema
@@ -428,3 +431,318 @@ export const deleteReminderResponseSchema = z.object({
   deleted: z.literal(true),
 });
 export type DeleteReminderResponse = z.infer<typeof deleteReminderResponseSchema>;
+
+// ADR-006: estimated AI usage for the current calendar month (Settings).
+const providerUsageSchema = z.object({
+  calls: z.number().int().min(0),
+  // Null when none of the provider's calls could be priced (e.g. Groq).
+  costUsd: z.number().min(0).nullable(),
+});
+export const llmUsageSummaryResponseSchema = z.object({
+  since: z.string(),
+  calls: z.number().int().min(0),
+  estimatedCostUsd: z.number().min(0),
+  openai: providerUsageSchema,
+  groq: providerUsageSchema,
+});
+export type LlmUsageSummaryResponse = z.infer<typeof llmUsageSummaryResponseSchema>;
+
+// ADR-006 (M2): chatting with Zara.
+export const sendChatMessageRequestSchema = z.object({
+  // Omit to start a new conversation (titled from the first message).
+  conversationId: z.string().min(1).optional(),
+  text: z.string().trim().min(1).max(4000),
+  // M4: the user spoke this message — Zara's reply will be read aloud.
+  spoken: z.boolean().optional(),
+  // M8: the user just approved this connection-tool card; its result is handed to Zara with this message.
+  continueActionId: z.string().min(1).max(100).optional(),
+  // M3 incognito: nothing is stored or learned; the client sends the history instead.
+  incognito: z.boolean().optional(),
+  history: z
+    .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(4000) }))
+    .max(20)
+    .optional(),
+});
+export type SendChatMessageRequest = z.infer<typeof sendChatMessageRequestSchema>;
+
+export const chatMessageDtoSchema = z.object({
+  id: z.string(),
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+  provider: z.enum(["openai", "groq"]).nullable(),
+  createdAt: z.string(),
+});
+export type ChatMessageDto = z.infer<typeof chatMessageDtoSchema>;
+
+export const chatMessagesResponseSchema = z.object({ messages: z.array(chatMessageDtoSchema) });
+
+export const conversationSummarySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  updatedAt: z.string(),
+});
+export const conversationsResponseSchema = z.object({ conversations: z.array(conversationSummarySchema) });
+
+export const transcribeRequestSchema = z.object({
+  audioBase64: z.string().min(1).max(10_000_000),
+  mimeType: z.string().min(1),
+  durationSeconds: z.number().min(0).max(600).optional(),
+  // How Hindi words are written: Roman (Hinglish, default) or Devanagari.
+  script: z.enum(["latin", "devanagari"]).optional(),
+});
+export const transcribeResponseSchema = z.object({ text: z.string() });
+
+// ADR-006 (M3): memory, activity log, chat deletion.
+export const memoryCategorySchema = z.enum(["about_you", "people", "preferences", "other"]);
+export const memoryFactDtoSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  category: memoryCategorySchema,
+  updatedAt: z.string(),
+});
+export const memoryFactsResponseSchema = z.object({ facts: z.array(memoryFactDtoSchema) });
+export const updateMemoryFactRequestSchema = z.object({ content: z.string().trim().min(1).max(300) });
+
+export const activityEntryDtoSchema = z.object({
+  id: z.string(),
+  createdAt: z.string(),
+  kind: z.string(),
+  summary: z.string(),
+  provider: z.string().nullable(),
+  canUndo: z.boolean(),
+  undoneAt: z.string().nullable(),
+});
+export const activityResponseSchema = z.object({ entries: z.array(activityEntryDtoSchema) });
+export const activityQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(500).optional() });
+
+export const deletedCountResponseSchema = z.object({ deleted: z.number().int().min(0) });
+
+// ADR-006 (M4): Zara's voice. OpenAI's built-in TTS voices; marin is Zara's default.
+export const OPENAI_TTS_VOICES = [
+  "marin",
+  "cedar",
+  "coral",
+  "nova",
+  "shimmer",
+  "sage",
+  "alloy",
+  "ash",
+  "ballad",
+  "echo",
+  "fable",
+  "onyx",
+  "verse",
+] as const;
+export type OpenAiTtsVoice = (typeof OPENAI_TTS_VOICES)[number];
+export const DEFAULT_OPENAI_TTS_VOICE: OpenAiTtsVoice = "marin";
+
+// One sentence or a short group of them — the desktop speaks replies in chunks.
+export const speakRequestSchema = z.object({
+  text: z.string().trim().min(1).max(1000),
+  voice: z.enum(OPENAI_TTS_VOICES),
+});
+export const speakResponseSchema = z.object({ audioBase64: z.string(), mimeType: z.literal("audio/mpeg") });
+
+// ADR-006 (M5): proactive behaviour.
+const clockTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use HH:MM (24-hour)");
+export const briefingModeSchema = z.enum(["written", "spoken", "both"]);
+export type BriefingMode = z.infer<typeof briefingModeSchema>;
+
+export const proactiveSettingsSchema = z.object({
+  briefingEnabled: z.boolean(),
+  briefingMode: briefingModeSchema,
+  briefingWeekdaysOnly: z.boolean(),
+  wrapUpEnabled: z.boolean(),
+  wrapUpTime: clockTimeSchema,
+  preMeetingBriefEnabled: z.boolean(),
+  followUpEnabled: z.boolean(),
+  followUpDays: z.number().int().min(1).max(14),
+  promiseRemindersEnabled: z.boolean(),
+  promiseRemindTime: clockTimeSchema,
+  promiseSameDayLeadHours: z.number().int().min(1).max(12),
+  holdDuringFocus: z.boolean(),
+  quietHoursEnabled: z.boolean(),
+  quietHoursStart: clockTimeSchema,
+  quietHoursEnd: clockTimeSchema,
+});
+export type ProactiveSettingsDto = z.infer<typeof proactiveSettingsSchema>;
+export const updateProactiveSettingsSchema = proactiveSettingsSchema.partial();
+
+export const briefingKindSchema = z.enum(["morning", "wrap_up"]);
+export type BriefingKind = z.infer<typeof briefingKindSchema>;
+export const deliverBriefingRequestSchema = z.object({
+  kind: briefingKindSchema,
+  // Settings' "Show it now" button: skip the due check (still recorded as delivered).
+  force: z.boolean().optional(),
+});
+export const deliverBriefingResponseSchema = z.union([
+  z.object({ delivered: z.literal(false) }),
+  z.object({
+    delivered: z.literal(true),
+    kind: briefingKindSchema,
+    conversationId: z.string(),
+    title: z.string(),
+    text: z.string(),
+    mode: briefingModeSchema,
+  }),
+]);
+
+export const sentMailProcessResponseSchema = z.object({
+  synced: z.number().int(),
+  analyzed: z.number().int(),
+  promiseReminders: z.number().int(),
+  followUps: z.number().int(),
+});
+
+// ADR-006 (M6): recall — the local search index.
+export const recallSourceTypeSchema = z.enum(["email", "event", "chat", "memory", "note", "document"]);
+export const recallSettingsSchema = z.object({
+  documentsFolder: z.string(),
+  documentsEnabled: z.boolean(),
+  peopleEnabled: z.boolean(),
+  emailHistoryDays: z.number().int(),
+});
+export const updateRecallSettingsSchema = z.object({
+  // An absolute folder path chosen with the desktop's folder picker; null = back to Documents\Zara.
+  documentsFolder: z.string().min(3).max(500).nullable().optional(),
+  documentsEnabled: z.boolean().optional(),
+  peopleEnabled: z.boolean().optional(),
+  emailHistoryDays: z.union([z.literal(30), z.literal(90)]).optional(),
+});
+export const recallStatusSchema = z.object({
+  state: z.enum(["idle", "indexing"]),
+  lastIndexedAt: z.string().nullable(),
+  lastError: z.string().nullable(),
+  model: z.enum(["idle", "loading", "ready", "failed"]),
+  modelError: z.string().nullable(),
+  sources: z.record(z.number()),
+  chunks: z.number().int(),
+  embedded: z.number().int(),
+  emailHistoryComplete: z.boolean(),
+});
+export const recallIndexResponseSchema = z.object({ started: z.boolean() });
+export const recallSearchQuerySchema = z.object({
+  q: z.string().trim().min(1).max(300),
+  limit: z.coerce.number().int().min(1).max(20).optional(),
+});
+export const recallSearchResponseSchema = z.object({
+  results: z.array(
+    z.object({
+      id: z.string(),
+      sourceType: recallSourceTypeSchema,
+      title: z.string(),
+      snippet: z.string(),
+      sourceDate: z.string().nullable(),
+      url: z.string().nullable(),
+    }),
+  ),
+});
+
+// ADR-006 (M7): actions with approval.
+export const actionDtoSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["email_send", "calendar_create", "calendar_update", "calendar_cancel", "mcp_call"]),
+  status: z.enum(["pending", "sending", "done", "cancelled", "failed"]),
+  payload: z.unknown(),
+  before: z.unknown().nullable(),
+  newRecipients: z.array(z.string()),
+  notifies: z.array(z.string()),
+  executeAt: z.string().nullable(),
+  error: z.string().nullable(),
+  result: z.string().nullable(),
+  createdAt: z.string(),
+  voiceApprovable: z.boolean(),
+});
+export const actionsResponseSchema = z.object({ actions: z.array(actionDtoSchema) });
+export const approveActionRequestSchema = z.object({
+  payload: z.unknown().optional(),
+  // M8: approve a read-only connection tool and trust it from now on.
+  trustTool: z.boolean().optional(),
+});
+export const actionSettingsSchema = z.object({
+  writingStyle: z.string(),
+  permissions: z.object({
+    connected: z.boolean(),
+    sendEmail: z.boolean(),
+    editCalendar: z.boolean(),
+    readDrive: z.boolean(),
+  }),
+});
+export const updateActionSettingsSchema = z.object({ writingStyle: z.string().max(4000) });
+export const executeDueResponseSchema = z.object({ executed: z.number().int() });
+
+// ADR-006 (M8): connections (MCP servers + built-in Google Drive).
+export const connectionPresetIdSchema = z.enum(["local_files", "google_drive", "web_search", "github", "notion", "slack", "browser", "custom"]);
+export const connectionPresetSchema = z.object({
+  id: connectionPresetIdSchema,
+  name: z.string(),
+  description: z.string(),
+  runtime: z.enum(["bundled", "npx", "builtin", "custom"]),
+  secrets: z.array(z.object({ key: z.string(), label: z.string(), help: z.string() })),
+  needsFolders: z.boolean().optional(),
+  note: z.string().optional(),
+});
+export const connectionDtoSchema = z.object({
+  id: z.string(),
+  preset: connectionPresetIdSchema,
+  name: z.string(),
+  enabled: z.boolean(),
+  folders: z.array(z.string()),
+  savedSecrets: z.array(z.string()),
+  command: z.string().nullable(),
+  args: z.array(z.string()),
+  status: z.enum(["off", "starting", "ready", "error"]),
+  error: z.string().nullable(),
+  tools: z.array(
+    z.object({
+      name: z.string(),
+      description: z.string(),
+      readOnly: z.boolean(),
+      destructive: z.boolean(),
+      enabled: z.boolean(),
+      trusted: z.boolean(),
+    }),
+  ),
+});
+export const connectionsResponseSchema = z.object({
+  presets: z.array(connectionPresetSchema),
+  connections: z.array(connectionDtoSchema),
+});
+export const addConnectionRequestSchema = z.object({
+  preset: connectionPresetIdSchema,
+  name: z.string().trim().max(60).optional(),
+  folders: z.array(z.string().max(500)).max(20).optional(),
+  secrets: z.record(z.string().max(2000)).optional(),
+  command: z.string().trim().max(300).optional(),
+  args: z.array(z.string().max(300)).max(30).optional(),
+});
+export const updateConnectionRequestSchema = z.object({
+  enabled: z.boolean().optional(),
+  secrets: z.record(z.string().max(2000)).optional(),
+});
+export const toolPolicyRequestSchema = z.object({ enabled: z.boolean().optional(), trusted: z.boolean().optional() });
+export const toolPolicyParamsSchema = z.object({ id: z.string().min(1), tool: z.string().min(1).max(128) });
+
+// ADR-006 (M9): routines.
+export const routineDtoSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  instruction: z.string(),
+  schedule: z.record(z.unknown()),
+  scheduleText: z.string(),
+  takesAction: z.boolean(),
+  enabled: z.boolean(),
+  nextRunAt: z.string().nullable(),
+  lastRunAt: z.string().nullable(),
+  lastStatus: z.string().nullable(),
+});
+export const routinesResponseSchema = z.object({ routines: z.array(routineDtoSchema) });
+export const createRoutineRequestSchema = z.object({ text: z.string().trim().min(5).max(500) });
+export const updateRoutineRequestSchema = z.object({
+  enabled: z.boolean().optional(),
+  title: z.string().trim().min(1).max(80).optional(),
+  instruction: z.string().trim().min(3).max(1000).optional(),
+  // New timing in the user's own words, e.g. "every Friday at 5pm".
+  when: z.string().trim().min(3).max(200).optional(),
+});
+export const runDueResponseSchema = z.object({ started: z.number().int() });

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
@@ -310,94 +310,187 @@ describe("desktop overlay", () => {
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
   });
 
-  describe("reminders from the dock (no Settings detour)", () => {
+  describe("chat with Zara (ADR-006 M2)", () => {
+    /** chatSend double: plays the given events, then resolves like the real IPC call. */
+    function chatSendPlaying(events: unknown[], result: unknown = { ok: true, value: null }) {
+      return vi.fn(async (_conversationId: string | null, _text: string, onEvent: (e: unknown) => void) => {
+        for (const event of events) onEvent(event);
+        return result;
+      });
+    }
+
     async function openChat() {
       render(<App />);
       await screen.findByTestId("intervention-card");
-      fireEvent.click(within(screen.getByTestId("dock")).getByRole("button", { name: "Type a reminder" }));
-      return screen.getByRole("textbox", { name: "What should I remind you about, and when?" });
+      fireEvent.click(within(screen.getByTestId("dock")).getByRole("button", { name: "Chat with Zara" }));
+      return screen.getByRole("textbox", { name: "Message Zara" });
     }
 
-    it("adds a typed reminder via the dock's chat button", async () => {
-      const bridge = installBridge({
-        createReminderFromText: vi.fn().mockResolvedValue({
-          ok: true,
-          reminder: {
-            text: "Drink water",
-            dueAt: "2026-09-24T16:00:00.000Z",
-            remindAt: "2026-09-24T15:50:00.000Z",
-          },
-        }),
-      });
+    it("sends a message and shows Zara's streamed reply, tool status included", async () => {
+      const chatSend = chatSendPlaying([
+        { type: "conversation", id: "conv_1", title: "what's on today?" },
+        { type: "status", text: "Checking your calendar…" },
+        { type: "delta", text: "You have " },
+        { type: "delta", text: "a team sync at 4 PM." },
+        {
+          type: "done",
+          message: { id: "m2", role: "assistant", content: "You have a team sync at 4 PM.", provider: "openai" },
+        },
+      ]);
+      installBridge({ chatSend });
       const input = await openChat();
 
-      fireEvent.change(input, { target: { value: "remind me to drink water at 4pm" } });
+      fireEvent.change(input, { target: { value: "what's on today?" } });
       fireEvent.keyDown(input, { key: "Enter" });
 
-      await waitFor(() => {
-        expect(bridge.createReminderFromText).toHaveBeenCalledWith("remind me to drink water at 4pm");
-      });
-      // Confirms with the parsed reminder's own text, not the raw input.
-      const composer = screen.getByTestId("reminder-composer");
-      expect(await within(composer).findByText(/Drink water/)).toBeInTheDocument();
-      // The box clears after a successful add.
+      const messages = screen.getByTestId("chat-messages");
+      expect(await within(messages).findByText("You have a team sync at 4 PM.")).toBeInTheDocument();
+      expect(within(messages).getByText("what's on today?")).toBeInTheDocument();
+      expect(chatSend).toHaveBeenCalledWith(null, "what's on today?", expect.any(Function));
       expect(input).toHaveValue("");
     });
 
-    it("shows the API's own reason when a reminder can't be created", async () => {
+    it("continues the same conversation on the next message", async () => {
+      const chatSend = chatSendPlaying([
+        { type: "conversation", id: "conv_1", title: "hi" },
+        { type: "done", message: { id: "m2", role: "assistant", content: "Hello!", provider: "openai" } },
+      ]);
+      installBridge({ chatSend });
+      const input = await openChat();
+
+      fireEvent.change(input, { target: { value: "hi" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await screen.findByText("Hello!");
+      fireEvent.change(input, { target: { value: "and tomorrow?" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      await waitFor(() => expect(chatSend).toHaveBeenLastCalledWith("conv_1", "and tomorrow?", expect.any(Function)));
+    });
+
+    it("labels a reply from the Groq backup", async () => {
       installBridge({
-        createReminderFromText: vi.fn().mockResolvedValue({
-          ok: false,
-          message: "Your Groq API key was rejected. Update it in Settings.",
+        chatSend: chatSendPlaying([
+          { type: "done", message: { id: "m2", role: "assistant", content: "Backup reply", provider: "groq" } },
+        ]),
+      });
+      const input = await openChat();
+      fireEvent.change(input, { target: { value: "hi" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(await screen.findByText("answered by backup (Groq)")).toBeInTheDocument();
+    });
+
+    it("shows Zara's friendly error (e.g. a rejected key)", async () => {
+      installBridge({
+        chatSend: chatSendPlaying([
+          { type: "error", message: "Your OpenAI API key was rejected. Update it in Settings." },
+        ]),
+      });
+      const input = await openChat();
+      fireEvent.change(input, { target: { value: "hi" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Your OpenAI API key was rejected.");
+    });
+
+    it("New chat clears the conversation; history reopens an old one", async () => {
+      const chatMessages = vi.fn().mockResolvedValue({
+        messages: [
+          { id: "a", role: "user", content: "old question" },
+          { id: "b", role: "assistant", content: "old answer", provider: "openai" },
+        ],
+      });
+      installBridge({
+        chatSend: chatSendPlaying([
+          { type: "conversation", id: "conv_1", title: "hi" },
+          { type: "done", message: { id: "m2", role: "assistant", content: "Hello!", provider: "openai" } },
+        ]),
+        chatList: vi.fn().mockResolvedValue({
+          conversations: [{ id: "conv_old", title: "Plan my Monday", updatedAt: new Date().toISOString() }],
         }),
+        chatMessages,
       });
       const input = await openChat();
+      fireEvent.change(input, { target: { value: "hi" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await screen.findByText("Hello!");
 
-      fireEvent.change(input, { target: { value: "remind me at 4pm to call Rahul" } });
-      fireEvent.click(screen.getByRole("button", { name: "Add reminder" }));
+      fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+      expect(screen.queryByText("Hello!")).toBeNull();
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Your Groq API key was rejected. Update it in Settings.",
-      );
-      expect(input).toHaveValue("remind me at 4pm to call Rahul");
+      fireEvent.click(screen.getByRole("button", { name: "Chat history" }));
+      fireEvent.click(await screen.findByText("Plan my Monday"));
+
+      expect(await screen.findByText("old answer")).toBeInTheDocument();
+      expect(chatMessages).toHaveBeenCalledWith("conv_old");
     });
 
-    it("shows a generic error and keeps the input when the call itself fails", async () => {
+    it("incognito sends the running history with each message and never adopts a stored conversation", async () => {
+      const chatSend = chatSendPlaying([
+        { type: "conversation", id: "should-be-ignored", title: "x" },
+        { type: "done", message: { id: "incognito-1", role: "assistant", content: "Private reply", provider: "openai" } },
+      ]);
+      installBridge({ chatSend });
+      const input = await openChat();
+
+      fireEvent.click(screen.getByRole("button", { name: "Incognito chat" }));
+      expect(screen.getByText(/this chat isn't saved/)).toBeInTheDocument();
+      fireEvent.change(input, { target: { value: "first" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await screen.findByText("Private reply");
+      fireEvent.change(input, { target: { value: "second" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      await waitFor(() =>
+        expect(chatSend).toHaveBeenLastCalledWith(null, "second", expect.any(Function), {
+          incognito: true,
+          history: [
+            { role: "user", content: "first" },
+            { role: "assistant", content: "Private reply" },
+          ],
+        }),
+      );
+    });
+
+    it("deletes a chat from history", async () => {
+      const chatDelete = vi.fn().mockResolvedValue({ ok: true, value: { deleted: 1 } });
       installBridge({
-        createReminderFromText: vi.fn().mockRejectedValue(new Error("boom")),
+        chatList: vi.fn().mockResolvedValue({
+          conversations: [{ id: "conv_old", title: "Plan my Monday", updatedAt: new Date().toISOString() }],
+        }),
+        chatDelete,
       });
-      const input = await openChat();
+      await openChat();
 
-      fireEvent.change(input, { target: { value: "Something" } });
-      fireEvent.click(screen.getByRole("button", { name: "Add reminder" }));
+      fireEvent.click(screen.getByRole("button", { name: "Chat history" }));
+      fireEvent.click(await screen.findByRole("button", { name: 'Delete chat "Plan my Monday"' }));
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Could not create that reminder. Please try again.",
-      );
-      expect(input).toHaveValue("Something");
+      await waitFor(() => expect(chatDelete).toHaveBeenCalledWith("conv_old"));
+      expect(screen.queryByText("Plan my Monday")).toBeNull();
     });
 
-    it("closes the chat box with Escape or the chat button", async () => {
+    it("closes with Escape or the chat button", async () => {
       installBridge();
       const input = await openChat();
 
       fireEvent.keyDown(input, { key: "Escape" });
-      expect(screen.queryByTestId("reminder-composer")).toBeNull();
+      expect(screen.queryByTestId("chat-panel")).toBeNull();
 
-      const chatButton = within(screen.getByTestId("dock")).getByRole("button", { name: "Type a reminder" });
+      const chatButton = within(screen.getByTestId("dock")).getByRole("button", { name: "Chat with Zara" });
       fireEvent.click(chatButton);
-      expect(screen.getByTestId("reminder-composer")).toBeInTheDocument();
+      expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
       fireEvent.click(chatButton);
-      expect(screen.queryByTestId("reminder-composer")).toBeNull();
+      expect(screen.queryByTestId("chat-panel")).toBeNull();
     });
 
-    it("shows a clear error when the dock's mic can't access the microphone (jsdom has no mediaDevices, same as a real permission denial)", async () => {
+    it("the dock's mic opens the chat and explains a microphone problem (jsdom has no mediaDevices, same as a real permission denial)", async () => {
       installBridge();
       render(<App />);
       await screen.findByTestId("intervention-card");
 
-      fireEvent.click(within(screen.getByTestId("dock")).getByRole("button", { name: "Record a reminder" }));
+      fireEvent.click(within(screen.getByTestId("dock")).getByRole("button", { name: "Talk to Zara" }));
 
+      expect(await screen.findByTestId("chat-panel")).toBeInTheDocument();
       expect(await screen.findByRole("alert")).toHaveTextContent("Could not access the microphone");
     });
 
@@ -701,6 +794,177 @@ describe("desktop overlay", () => {
       expect(card).toHaveTextContent(/expired or was revoked/i);
       expect(screen.getByRole("button", { name: "Reconnect Google" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("global hotkey (ADR-006 M4)", () => {
+    function installHotkeyBridge(overrides: Partial<Bridge> = {}) {
+      let press: (() => void) | null = null;
+      const bridge = installBridge({
+        onHotkey: vi.fn((callback: () => void) => {
+          press = callback;
+          return () => {
+            press = null;
+          };
+        }),
+        ...overrides,
+      });
+      return { bridge, press: () => act(() => press?.()) };
+    }
+
+    it("first press opens Zara's chat with the cursor in the box", async () => {
+      const { press } = installHotkeyBridge();
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+      await waitFor(() => expect(screen.getByRole("button", { name: "Check now" })).toBeInTheDocument());
+      expect(screen.queryByTestId("chat-panel")).toBeNull();
+
+      press();
+
+      const input = await screen.findByRole("textbox", { name: "Message Zara" });
+      await waitFor(() => expect(input).toHaveFocus());
+    });
+
+    it("a second press while the chat is open starts talking", async () => {
+      const getUserMedia = vi.fn().mockRejectedValue(Object.assign(new Error("denied"), { name: "NotAllowedError" }));
+      Object.defineProperty(navigator, "mediaDevices", { value: { getUserMedia }, configurable: true });
+      const { press } = installHotkeyBridge({ chatTranscribe: vi.fn() });
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+      await waitFor(() => expect(screen.getByRole("button", { name: "Check now" })).toBeInTheDocument());
+
+      press();
+      await screen.findByTestId("chat-panel");
+      press();
+
+      await waitFor(() => expect(getUserMedia).toHaveBeenCalled());
+    });
+
+    it("is ignored on the get-started screen", async () => {
+      const { press } = installHotkeyBridge({
+        getSettings: vi.fn().mockResolvedValue({
+          groqKeyConfigured: false,
+          googleOAuthConfigured: false,
+          secureStorageAvailable: true,
+          startupError: null,
+        }),
+      });
+      render(<App />);
+      await screen.findByText("Get started");
+      press();
+      expect(screen.queryByTestId("chat-panel")).toBeNull();
+    });
+  });
+
+  describe("proactive (ADR-006 M5)", () => {
+    const lowItem = { ...secondIntervention, priority: "medium" as const };
+
+    function withPushes(overrides: Partial<Bridge> = {}) {
+      const pushes: { hold?: (state: unknown) => void; briefing?: (b: unknown) => void } = {};
+      const bridge = installBridge({
+        fetchInbox: vi.fn().mockResolvedValue({ items: [intervention, lowItem] }),
+        onHoldChanged: vi.fn((cb: (state: unknown) => void) => {
+          pushes.hold = cb;
+          return () => undefined;
+        }),
+        onBriefing: vi.fn((cb: (b: unknown) => void) => {
+          pushes.briefing = cb;
+          return () => undefined;
+        }),
+        ...overrides,
+      });
+      return { bridge, pushes };
+    }
+
+    it("holds cards while the user is busy: a count in the dock and one quiet line per urgent item", async () => {
+      const { pushes } = withPushes();
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+
+      act(() => pushes.hold?.({ holding: true, reason: "presentation" }));
+
+      await waitFor(() => expect(screen.queryByTestId("intervention-card")).toBeNull());
+      expect(screen.getByText("⏸ 2 waiting")).toHaveAttribute("title", expect.stringMatching(/while you present/));
+      const notices = screen.getAllByTestId("quiet-notice");
+      expect(notices).toHaveLength(1);
+      expect(notices[0]).toHaveTextContent(intervention.title);
+
+      act(() => pushes.hold?.({ holding: false, reason: null }));
+      expect(await screen.findByTestId("intervention-card")).toBeInTheDocument();
+      expect(screen.queryByText(/⏸/)).toBeNull();
+    });
+
+    it("a written briefing opens as a chat", async () => {
+      const chatMessages = vi.fn().mockResolvedValue({
+        messages: [{ id: "m1", role: "assistant", content: "Good morning! Budget review at 11.", provider: "openai" }],
+      });
+      const { pushes } = withPushes({ chatMessages });
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+
+      act(() =>
+        pushes.briefing?.({ delivered: true, kind: "morning", conversationId: "c9", title: "Morning briefing", text: "x", mode: "written" }),
+      );
+
+      expect(await screen.findByText("Good morning! Budget review at 11.")).toBeInTheDocument();
+      expect(chatMessages).toHaveBeenCalledWith("c9");
+    });
+
+    it("a spoken-only briefing is read aloud without opening the chat", async () => {
+      const chatSpeak = vi.fn().mockResolvedValue({ ok: true, value: "bXAz" });
+      vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() => Promise.resolve());
+      vi.spyOn(window.HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+      const { pushes } = withPushes({ chatSpeak });
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+
+      act(() =>
+        pushes.briefing?.({
+          delivered: true,
+          kind: "wrap_up",
+          conversationId: "c10",
+          title: "Wrap-up",
+          text: "That's a wrap for today. Nothing left open.",
+          mode: "spoken",
+        }),
+      );
+
+      await waitFor(() => expect(chatSpeak).toHaveBeenCalled());
+      expect(screen.queryByTestId("chat-panel")).toBeNull();
+      vi.restoreAllMocks();
+    });
+  });
+
+  describe("connection tool approval (ADR-006 M8)", () => {
+    it("approving a tool card sends Zara the go-ahead with its result", async () => {
+      const card = {
+        id: "t1",
+        kind: "mcp_call",
+        status: "pending",
+        payload: { connectionId: "c1", connectionName: "Google Drive", tool: "drive_search", args: { query: "budget" }, readOnly: true, destructive: false },
+        before: null,
+        newRecipients: [],
+        notifies: [],
+        executeAt: null,
+        error: null,
+        result: null,
+        createdAt: "2026-09-30T10:00:00.000Z",
+        voiceApprovable: false,
+      };
+      const chatSend = vi.fn(async () => ({ ok: true, value: null }));
+      installBridge({
+        actionsList: vi.fn().mockResolvedValue({ ok: true, value: { actions: [card] } }),
+        actionsApprove: vi.fn().mockResolvedValue({ ok: true, value: { ...card, status: "done", result: "2 files" } }),
+        chatSend,
+      });
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+      fireEvent.click(within(screen.getByTestId("dock")).getByRole("button", { name: "Chat with Zara" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Allow once" }));
+
+      await waitFor(() =>
+        expect(chatSend).toHaveBeenCalledWith(null, "✓ Approved Google Drive · drive_search", expect.any(Function), { continueActionId: "t1" }),
+      );
     });
   });
 });

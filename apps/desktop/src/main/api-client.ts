@@ -43,7 +43,7 @@ export interface ApiClient {
    */
   createReminderFromText(text: string): Promise<unknown>;
   /** Same as createReminderFromText, but starting from a recorded voice clip (base64-encoded, no data: URI prefix) — transcribed by Groq, then parsed exactly the same way. */
-  createReminderFromVoice(audioBase64: string, mimeType: string): Promise<unknown>;
+  createReminderFromVoice(audioBase64: string, mimeType: string, durationSeconds?: number): Promise<unknown>;
   /**
    * Runs the same sequence the background scheduler runs on its own
    * interval (see sync-scheduler.ts): check due reminders, sync Gmail,
@@ -63,6 +63,71 @@ export interface ApiClient {
    * scheduler can run it every minute for on-time alerts.
    */
   checkDue(): Promise<unknown>;
+  /** ADR-006: estimated AI usage for the current month (Settings). */
+  usageSummary(): Promise<unknown>;
+  /** ADR-006 (M2): Zara chat — past conversations, a conversation's messages, and speech → text for the chat box. */
+  listConversations(): Promise<unknown>;
+  getConversationMessages(conversationId: string): Promise<unknown>;
+  transcribe(
+    audioBase64: string,
+    mimeType: string,
+    durationSeconds?: number,
+    script?: "latin" | "devanagari",
+  ): Promise<unknown>;
+  /** ADR-006 (M7): approval cards and writing style. */
+  listActions(): Promise<unknown>;
+  approveAction(actionId: string, payload?: unknown, trustTool?: boolean): Promise<unknown>;
+  /** ADR-006 (M9): routines. */
+  listRoutines(): Promise<unknown>;
+  createRoutine(text: string): Promise<unknown>;
+  updateRoutine(routineId: string, patch: Record<string, unknown>): Promise<unknown>;
+  deleteRoutine(routineId: string): Promise<unknown>;
+  runRoutine(routineId: string): Promise<unknown>;
+  /** ADR-006 (M8): connections. */
+  listConnections(): Promise<unknown>;
+  addConnection(input: Record<string, unknown>): Promise<unknown>;
+  updateConnection(connectionId: string, patch: Record<string, unknown>): Promise<unknown>;
+  restartConnection(connectionId: string): Promise<unknown>;
+  removeConnection(connectionId: string): Promise<unknown>;
+  setToolPolicy(connectionId: string, tool: string, patch: Record<string, unknown>): Promise<unknown>;
+  cancelAction(actionId: string): Promise<unknown>;
+  actionSettings(): Promise<unknown>;
+  updateActionSettings(writingStyle: string): Promise<unknown>;
+  /** ADR-006 (M6): recall — local search index settings, status, background indexing. */
+  recallSettings(): Promise<unknown>;
+  updateRecallSettings(patch: Record<string, unknown>): Promise<unknown>;
+  recallStatus(): Promise<unknown>;
+  recallIndex(): Promise<unknown>;
+  /** ADR-006 (M5): proactive settings, briefings, sent-mail follow-ups/promises. */
+  proactiveSettings(): Promise<unknown>;
+  updateProactiveSettings(patch: Record<string, unknown>): Promise<unknown>;
+  deliverBriefing(kind: "morning" | "wrap_up", force?: boolean): Promise<unknown>;
+  /** M4: one chunk of Zara's reply as MP3 (`{ audioBase64, mimeType }`) in the given OpenAI voice. */
+  speak(text: string, voice: string): Promise<unknown>;
+  /** Sends a message and streams Zara's reply; resolves when the stream ends. Omit conversationId to start a new chat. */
+  sendChatMessage(request: ChatSendRequest, onEvent: (event: unknown) => void): Promise<void>;
+  /** ADR-006 (M3): chat deletion, memory page, activity log. */
+  deleteConversation(conversationId: string): Promise<unknown>;
+  deleteAllConversations(): Promise<unknown>;
+  listMemory(): Promise<unknown>;
+  updateMemory(factId: string, content: string): Promise<unknown>;
+  deleteMemory(factId: string): Promise<unknown>;
+  deleteAllMemory(): Promise<unknown>;
+  listActivity(): Promise<unknown>;
+  undoActivity(entryId: string): Promise<unknown>;
+  clearActivity(): Promise<unknown>;
+}
+
+export interface ChatSendRequest {
+  conversationId?: string | undefined;
+  text: string;
+  /** Incognito (M3): nothing stored or learned — the client supplies the history. */
+  incognito?: boolean | undefined;
+  history?: { role: "user" | "assistant"; content: string }[] | undefined;
+  /** M4: the user spoke this message — Zara's reply will be read aloud. */
+  spoken?: boolean | undefined;
+  /** M8: the user just approved this connection-tool card. */
+  continueActionId?: string | undefined;
 }
 
 export interface FetchLike {
@@ -70,7 +135,50 @@ export interface FetchLike {
     ok: boolean;
     status: number;
     json(): Promise<unknown>;
+    /** Present on real fetch responses — read incrementally for streamed chat replies. */
+    body?: ReadableStream<Uint8Array> | null;
   }>;
+}
+
+/**
+ * Reads a Server-Sent Events body (`data: <json>\n\n` blocks — the chat
+ * route's format) and hands each parsed event to onEvent as it arrives.
+ * Malformed blocks are skipped rather than aborting the whole reply.
+ */
+export async function readSseStream(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (event: unknown) => void,
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const flush = (block: string) => {
+    const data = block
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (!data) return;
+    try {
+      onEvent(JSON.parse(data));
+    } catch {
+      // Skip a malformed block.
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary !== -1) {
+      flush(buffer.slice(0, boundary));
+      buffer = buffer.slice(boundary + 2);
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
+  if (buffer.trim()) flush(buffer);
 }
 
 export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as FetchLike): ApiClient {
@@ -124,16 +232,169 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
     createReminderFromText(text) {
       return request("/reminders/from-text", { method: "POST", body: JSON.stringify({ text }) });
     },
-    createReminderFromVoice(audioBase64, mimeType) {
+    createReminderFromVoice(audioBase64, mimeType, durationSeconds) {
       return request("/reminders/from-voice", {
         method: "POST",
-        body: JSON.stringify({ audioBase64, mimeType }),
+        body: JSON.stringify({
+          audioBase64,
+          mimeType,
+          ...(durationSeconds !== undefined ? { durationSeconds } : {}),
+        }),
       });
+    },
+    usageSummary() {
+      return request("/usage/summary");
+    },
+    listConversations() {
+      return request("/chat/conversations");
+    },
+    getConversationMessages(conversationId) {
+      return request(`/chat/conversations/${encodeURIComponent(conversationId)}/messages`);
+    },
+    transcribe(audioBase64, mimeType, durationSeconds, script) {
+      return request("/chat/transcribe", {
+        method: "POST",
+        body: JSON.stringify({
+          audioBase64,
+          mimeType,
+          ...(durationSeconds !== undefined ? { durationSeconds } : {}),
+          ...(script ? { script } : {}),
+        }),
+      });
+    },
+    listActions() {
+      return request("/actions");
+    },
+    approveAction(actionId, payload, trustTool) {
+      return request(`/actions/${encodeURIComponent(actionId)}/approve`, {
+        method: "POST",
+        body: JSON.stringify({ ...(payload === undefined ? {} : { payload }), ...(trustTool ? { trustTool: true } : {}) }),
+      });
+    },
+    listRoutines() {
+      return request("/routines");
+    },
+    createRoutine(text) {
+      return request("/routines", { method: "POST", body: JSON.stringify({ text }) });
+    },
+    updateRoutine(routineId, patch) {
+      return request(`/routines/${encodeURIComponent(routineId)}`, { method: "PATCH", body: JSON.stringify(patch) });
+    },
+    deleteRoutine(routineId) {
+      return request(`/routines/${encodeURIComponent(routineId)}`, { method: "DELETE" });
+    },
+    runRoutine(routineId) {
+      return request(`/routines/${encodeURIComponent(routineId)}/run`, { method: "POST", body: "{}" });
+    },
+    listConnections() {
+      return request("/connections");
+    },
+    addConnection(input) {
+      return request("/connections", { method: "POST", body: JSON.stringify(input) });
+    },
+    updateConnection(connectionId, patch) {
+      return request(`/connections/${encodeURIComponent(connectionId)}`, { method: "PATCH", body: JSON.stringify(patch) });
+    },
+    restartConnection(connectionId) {
+      return request(`/connections/${encodeURIComponent(connectionId)}/restart`, { method: "POST", body: "{}" });
+    },
+    removeConnection(connectionId) {
+      return request(`/connections/${encodeURIComponent(connectionId)}`, { method: "DELETE" });
+    },
+    setToolPolicy(connectionId, tool, patch) {
+      return request(`/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(tool)}`, {
+        method: "PUT",
+        body: JSON.stringify(patch),
+      });
+    },
+    cancelAction(actionId) {
+      return request(`/actions/${encodeURIComponent(actionId)}/cancel`, { method: "POST", body: "{}" });
+    },
+    actionSettings() {
+      return request("/actions/settings");
+    },
+    updateActionSettings(writingStyle) {
+      return request("/actions/settings", { method: "PATCH", body: JSON.stringify({ writingStyle }) });
+    },
+    recallSettings() {
+      return request("/recall/settings");
+    },
+    updateRecallSettings(patch) {
+      return request("/recall/settings", { method: "PATCH", body: JSON.stringify(patch) });
+    },
+    recallStatus() {
+      return request("/recall/status");
+    },
+    recallIndex() {
+      return request("/recall/index", { method: "POST", body: "{}" });
+    },
+    proactiveSettings() {
+      return request("/proactive/settings");
+    },
+    updateProactiveSettings(patch) {
+      return request("/proactive/settings", { method: "PATCH", body: JSON.stringify(patch) });
+    },
+    deliverBriefing(kind, force) {
+      return request("/proactive/briefing", { method: "POST", body: JSON.stringify({ kind, ...(force ? { force: true } : {}) }) });
+    },
+    speak(text, voice) {
+      return request("/chat/speak", { method: "POST", body: JSON.stringify({ text, voice }) });
+    },
+    async sendChatMessage(body, onEvent) {
+      const response = await fetchImpl(`${normalizedBase}/api/v1/chat/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "text/event-stream" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        throw new ApiClientError(
+          `API request failed (${response.status}) POST /chat/messages`,
+          response.status,
+          await readApiErrorMessage(response),
+        );
+      }
+      if (!response.body) throw new ApiClientError("Chat reply had no body", response.status);
+      await readSseStream(response.body, onEvent);
+    },
+    deleteConversation(conversationId) {
+      return request(`/chat/conversations/${encodeURIComponent(conversationId)}`, { method: "DELETE" });
+    },
+    deleteAllConversations() {
+      return request("/chat/conversations", { method: "DELETE" });
+    },
+    listMemory() {
+      return request("/memory/facts");
+    },
+    updateMemory(factId, content) {
+      return request(`/memory/facts/${encodeURIComponent(factId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ content }),
+      });
+    },
+    deleteMemory(factId) {
+      return request(`/memory/facts/${encodeURIComponent(factId)}`, { method: "DELETE" });
+    },
+    deleteAllMemory() {
+      return request("/memory/facts", { method: "DELETE" });
+    },
+    listActivity() {
+      return request("/activity?limit=100");
+    },
+    undoActivity(entryId) {
+      return request(`/activity/${encodeURIComponent(entryId)}/undo`, { method: "POST", body: "{}" });
+    },
+    clearActivity() {
+      return request("/activity", { method: "DELETE" });
     },
     async checkNow() {
       await request("/reminders/detect-signals", { method: "POST", body: "{}" });
       await request("/integrations/google/gmail/sync", { method: "POST", body: "{}" });
       await request("/integrations/google/gmail/detect-signals", { method: "POST", body: "{}" });
+      // ADR-006 M5: sent mail → promise reminders + follow-up nudges. Best
+      // effort: a problem here (e.g. the AI is down) mustn't stop the sync.
+      await request("/proactive/sent-mail", { method: "POST", body: "{}" }).catch(() => undefined);
+      // ADR-006 M6: refresh the local search index in the background (returns at once).
+      await request("/recall/index", { method: "POST", body: "{}" }).catch(() => undefined);
       await request("/integrations/google/calendar/sync", { method: "POST", body: "{}" });
       await request("/integrations/google/calendar/detect-signals", {
         method: "POST",
@@ -143,6 +404,10 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
     },
     async checkDue() {
       await request("/reminders/detect-signals", { method: "POST", body: "{}" });
+      // M7: backup for the API's own 30 s send timer (best effort).
+      await request("/actions/execute-due", { method: "POST", body: "{}" }).catch(() => undefined);
+      // M9: start routines that are due (they run in the background on the API side).
+      await request("/routines/run-due", { method: "POST", body: "{}" }).catch(() => undefined);
       return request("/integrations/google/calendar/detect-signals", {
         method: "POST",
         body: "{}",

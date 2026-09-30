@@ -6,6 +6,7 @@ function makeProvider(overrides: Partial<GroqProvider> = {}): GroqProvider {
   return {
     createStructuredCompletion: vi.fn(),
     transcribeAudio: vi.fn().mockResolvedValue("remind me to drink water at 4pm"),
+    streamChat: vi.fn(),
     ...overrides,
   };
 }
@@ -27,9 +28,16 @@ describe("audio transcription service", () => {
     const service = createAudioTranscriptionService({ provider });
     const buffer = Buffer.from("audio-bytes");
 
-    await service.transcribe(buffer, "audio/webm");
+    await service.transcribe(buffer, "audio/webm", 4.2);
 
-    expect(provider.transcribeAudio).toHaveBeenCalledWith({ audio: buffer, mimeType: "audio/webm" });
+    expect(provider.transcribeAudio).toHaveBeenCalledWith({
+      audio: buffer,
+      mimeType: "audio/webm",
+      operation: "transcription",
+      prompt: expect.stringContaining("Hinglish"),
+      languages: ["en", "hi"],
+      durationSeconds: 4.2,
+    });
   });
 
   it("returns not_configured when Groq isn't configured", async () => {
@@ -59,5 +67,11 @@ describe("audio transcription service", () => {
     const result = await service.transcribe(Buffer.from("audio"), "audio/webm");
 
     expect(result).toMatchObject({ ok: false, code: "empty" });
+  });
+
+  it("asks for Devanagari when the user prefers it", async () => {
+    const provider = makeProvider();
+    await createAudioTranscriptionService({ provider }).transcribe(Buffer.from("a"), "audio/webm", 2, "devanagari");
+    expect(provider.transcribeAudio).toHaveBeenCalledWith(expect.objectContaining({ prompt: expect.stringContaining("कल सुबह") }));
   });
 });

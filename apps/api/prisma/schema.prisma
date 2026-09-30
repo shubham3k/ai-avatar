@@ -73,6 +73,12 @@ model Email {
   labels            String   @default("[]")
   sourceUrl         String?
   rawUpdatedAt      DateTime?
+  // ADR-006 M5 (sent mail only): analysed once for promises / "expects a
+  // reply"; follow-up bookkeeping so threads aren't re-checked constantly.
+  sentAnalyzedAt    DateTime?
+  expectsReply      Boolean?
+  followUpCheckedAt DateTime?
+  repliedAt         DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -186,6 +192,9 @@ model Reminder {
   text      String
   dueAt     DateTime
   remindAt  DateTime?
+  // ADR-006 M5: "promise" when Zara created it from a promise in sent mail.
+  origin        String?
+  sourceEmailId String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -207,4 +216,253 @@ model AgentRun {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+// ADR-006: one row per successful AI provider call, for "usage this month"
+// in Settings. Counts only — never prompt/response content. App-level (not
+// per-user): the desktop app is single-user and usage is billed per API key.
+model LlmUsage {
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())
+  provider          String // "openai" | "groq"
+  model             String
+  operation         String // "reminder_parse" | "prioritization" | "transcription" | "other"
+  inputTokens       Int      @default(0)
+  cachedInputTokens Int      @default(0)
+  outputTokens      Int      @default(0)
+  audioSeconds      Float    @default(0)
+  // Estimated at record time from pricing.ts; null when the model's price is unknown.
+  costUsd           Float?
+
+  @@index([createdAt])
+}
+
+// ADR-006 (M2): chats with Zara. Stored locally forever (deletion options
+// arrive with M3). Only what the user and Zara said is stored — tool calls
+// and their results are transient, re-derived from local data each turn.
+model Conversation {
+  id        String        @id @default(cuid())
+  userId    String
+  title     String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+
+  @@index([userId, updatedAt])
+}
+
+model ChatMessage {
+  id             String       @id @default(cuid())
+  conversationId String
+  role           String // "user" | "assistant"
+  content        String
+  // Which provider produced an assistant reply ("openai" | "groq"); null for user messages.
+  provider       String?
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+// ADR-006 (M3): lasting facts Zara learned about the user ("Rahul is my
+// manager"). Local only; editable/deletable from Settings or by telling
+// Zara. Sensitive details (passwords, card/ID numbers…) are never stored.
+model MemoryFact {
+  id        String   @id @default(cuid())
+  userId    String
+  content   String
+  category  String // "about_you" | "people" | "preferences" | "other"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, updatedAt])
+}
+
+// ADR-006 (M3): everything Zara did, newest first in Settings. `undo` holds
+// what's needed to reverse the action (JSON), null when it can't be undone.
+model ActivityEntry {
+  id        String    @id @default(cuid())
+  userId    String
+  createdAt DateTime  @default(now())
+  kind      String // "reminder_created" | "reminder_deleted" | "memory_saved" | "memory_updated" | "memory_deleted"
+  summary   String
+  // Which provider was answering when Zara took the action ("openai" | "groq").
+  provider  String?
+  undo      String?
+  undoneAt  DateTime?
+
+  @@index([userId, createdAt])
+}
+
+// ADR-006 M5: proactive behaviour settings plus "already delivered today"
+// markers (local YYYY-MM-DD) so a briefing/wrap-up is never sent twice.
+model ProactiveSettings {
+  id                      String   @id @default(cuid())
+  userId                  String   @unique
+  briefingEnabled         Boolean  @default(true)
+  briefingMode            String   @default("written") // written | spoken | both
+  briefingWeekdaysOnly    Boolean  @default(false)
+  wrapUpEnabled           Boolean  @default(true)
+  wrapUpTime              String   @default("18:00")
+  preMeetingBriefEnabled  Boolean  @default(true)
+  followUpEnabled         Boolean  @default(true)
+  followUpDays            Int      @default(3)
+  promiseRemindersEnabled Boolean  @default(true)
+  promiseRemindTime       String   @default("10:00")
+  promiseSameDayLeadHours Int      @default(2)
+  holdDuringFocus         Boolean  @default(true)
+  quietHoursEnabled       Boolean  @default(false)
+  quietHoursStart         String   @default("22:00")
+  quietHoursEnd           String   @default("07:00")
+  lastBriefingOn          String?
+  lastWrapUpOn            String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+}
+
+// ADR-006 M6: the local search index — one row per chunk of an email,
+// event, chat, memory fact, note, or document. The keyword index
+// (FTS5 table "RecallChunkFts") is created at runtime by
+// domain/recall/recall-store.ts, not here, so Prisma migrations never see it.
+model RecallChunk {
+  id          String    @id @default(cuid())
+  userId      String
+  sourceType  String // email | event | chat | memory | note | document
+  sourceId    String // row id, or a file's path relative to the documents folder
+  chunkIndex  Int
+  title       String
+  text        String
+  sourceDate  DateTime?
+  url         String?
+  contentHash String // of the whole source — unchanged sources aren't re-indexed
+  embedding   Bytes? // float32 vector from the local model; null until embedded
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([userId, sourceType, sourceId, chunkIndex])
+  @@index([userId, sourceType, sourceId])
+}
+
+model RecallSettings {
+  id                  String    @id @default(cuid())
+  userId              String    @unique
+  documentsFolder     String? // null = Documents\Zara
+  documentsEnabled    Boolean   @default(true)
+  peopleEnabled       Boolean   @default(true) // experimental people profiles
+  emailHistoryDays    Int       @default(30)
+  backfillPageToken   String?
+  backfillDoneForDays Int? // emailHistoryDays value the backfill finished for
+  lastIndexedAt       DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+// ADR-006 M7: an external action Zara proposed (email send, calendar
+// create/update/cancel). Nothing leaves the PC until the user approves the
+// card; email then waits 30 s ("Sending… [Undo]") before it is sent.
+model PendingAction {
+  id             String    @id @default(cuid())
+  userId         String
+  kind           String // email_send | calendar_create | calendar_update | calendar_cancel
+  status         String    @default("pending") // pending | sending | done | cancelled | failed
+  payload        String // JSON, validated per kind
+  original       String? // payload as Zara first wrote it — to learn from the user's edits
+  before         String? // calendar update/cancel: the event before the change
+  newRecipients  String    @default("[]")
+  notifies       String    @default("[]") // who gets an email because of this
+  conversationId String?
+  executeAt      DateTime?
+  executedAt     DateTime?
+  resultId       String?
+  result         String? // M8: text an approved connection tool returned (capped), handed back to Zara
+  error          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId, status])
+}
+
+// M7 writing style: the user's own guide plus edits they made to Zara's drafts.
+model ActionSettings {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  writingStyle String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model DraftEdit {
+  id        String   @id @default(cuid())
+  userId    String
+  before    String
+  after     String
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ADR-006 M8: connections Zara can use through MCP (plus built-in Google
+// Drive). Secrets (tokens) are stored encrypted and never sent back to the UI.
+model McpConnection {
+  id           String          @id @default(cuid())
+  userId       String
+  preset       String // local_files | google_drive | web_search | github | notion | slack | browser | custom
+  name         String
+  command      String? // custom connections only
+  args         String          @default("[]") // JSON
+  folders      String          @default("[]") // local_files: the folders it may read (JSON)
+  envEncrypted String? // encrypted JSON of secret environment variables
+  enabled      Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  tools        McpToolPolicy[]
+
+  @@index([userId])
+}
+
+// Strict trust: every tool asks first unless the user trusts it — and only
+// read-only tools can be trusted.
+model McpToolPolicy {
+  id           String        @id @default(cuid())
+  connectionId String
+  toolName     String
+  enabled      Boolean       @default(true)
+  trusted      Boolean       @default(false)
+  connection   McpConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, toolName])
+}
+
+// ADR-006 M9: plain-language routines ("every Monday at 9, summarize
+// unanswered emails"). Read-and-report routines run by themselves; anything
+// that would send or change something becomes an approval card every run.
+model Routine {
+  id           String       @id @default(cuid())
+  userId       String
+  title        String
+  instruction  String
+  schedule     String // JSON, see domain/routines/routine-schedule.ts
+  takesAction  Boolean      @default(false)
+  enabled      Boolean      @default(true)
+  nextRunAt    DateTime?
+  lastRunAt    DateTime?
+  lastStatus   String? // ok | needs_approval | failed
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  runs         RoutineRun[]
+
+  @@index([userId, enabled, nextRunAt])
+}
+
+model RoutineRun {
+  id             String    @id @default(cuid())
+  routineId      String
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  status         String    @default("running") // running | ok | needs_approval | failed
+  conversationId String?
+  summary        String?
+  routine        Routine   @relation(fields: [routineId], references: [id], onDelete: Cascade)
+
+  @@index([routineId, startedAt])
 }

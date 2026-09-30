@@ -79,7 +79,7 @@ describe("reminders API", () => {
     });
 
     expect(res.statusCode).toBe(400);
-    expect(res.json().error.message).toMatch(/Add your Groq API key in Settings/);
+    expect(res.json().error.message).toMatch(/Add your OpenAI API key in Settings/);
     expect(await prisma.reminder.count()).toBe(0);
   });
 
@@ -96,7 +96,7 @@ describe("reminders API", () => {
     });
 
     expect(res.statusCode).toBe(400);
-    expect(res.json().error.message).toMatch(/Add your Groq API key in Settings/);
+    expect(res.json().error.message).toMatch(/Add your OpenAI API key in Settings/);
     expect(await prisma.reminder.count()).toBe(0);
   });
 

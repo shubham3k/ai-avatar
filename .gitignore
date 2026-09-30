@@ -62,3 +62,5 @@ prisma/migrations/
 *.pem
 .vercel
 .netlify
+# ADR-006 M6: local search model downloaded on first use (dev runs without Electron)
+apps/api/.cache/

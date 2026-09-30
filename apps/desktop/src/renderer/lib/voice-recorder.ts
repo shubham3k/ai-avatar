@@ -1,6 +1,8 @@
 export interface RecordingResult {
   blob: Blob;
   mimeType: string;
+  /** Wall-clock recording length — transcription is billed per minute (usage estimate). */
+  durationSeconds: number;
 }
 
 const CANDIDATE_MIME_TYPES = [
@@ -58,6 +60,7 @@ export function createVoiceRecorder(options?: { maxDurationMs?: number }): Voice
   let stream: MediaStream | null = null;
   let chunks: BlobPart[] = [];
   let autoStopTimer: ReturnType<typeof setTimeout> | null = null;
+  let startedAt: number | null = null;
 
   function releaseStream(): void {
     stream?.getTracks().forEach((track) => track.stop());
@@ -74,6 +77,7 @@ export function createVoiceRecorder(options?: { maxDurationMs?: number }): Voice
         if (event.data.size > 0) chunks.push(event.data);
       };
       mediaRecorder.start();
+      startedAt = Date.now();
       autoStopTimer = setTimeout(() => {
         if (mediaRecorder?.state === "recording") mediaRecorder.stop();
       }, maxDurationMs);
@@ -93,8 +97,9 @@ export function createVoiceRecorder(options?: { maxDurationMs?: number }): Voice
         mediaRecorder.onstop = () => {
           releaseStream();
           const blob = new Blob(chunks, { type: mimeType });
+          const durationSeconds = startedAt === null ? 0 : (Date.now() - startedAt) / 1000;
           chunks = [];
-          resolve(blob.size > 0 ? { blob, mimeType } : null);
+          resolve(blob.size > 0 ? { blob, mimeType, durationSeconds } : null);
         };
         mediaRecorder.stop();
       });

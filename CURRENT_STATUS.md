@@ -1,10 +1,11 @@
 # Current Status - Quick Reference
 
-**Last Updated**: September 25, 2026
-**Phase**: Phase 1–4.7 Complete ✅ (see HANDOFF.md for the full list). Since then, an unnamed feature stretch (Sept 18–24): background sync, tray icon, pause/DND, Google-auth-expiry detection, a full UI redesign, broadened email detection, and a **reminders** feature (structured + natural-language + **voice**, via Groq). Full detail in HANDOFF.md's most recent addendum.
-**🚧 Not committed**: everything since checkpoint `b2b2f5a` is uncommitted. The `.exe` (built Sept 24, 18:19) has the Settings-scroll fix, the idle-box removal and the larger character, but **not** the Sept 25 reminder rework (ADR-005: LLM-intent parsing with local-time math, 1-minute delivery tick, 10-minute calendar alerts, real error messages) — rebuild when the user asks.
-**Next**: (1) rebuild `.exe` on request; (2) user retest of typed + voice reminders; (3) then the still-outstanding Phase 4.7 item: install/run on a genuinely clean machine.
-**⚠️ Full manual end-to-end product validation by the user has not yet been performed for Phase 3** — Phase 4's core loop (fresh install → Groq key → Google sign-in → Check now → real intervention with character) **has now been manually verified** by the user with their own Google account; automated tests + agent-driven checks otherwise. Every install verified so far, including this session's, was on the same machine that built the installer — genuine clean-machine validation is still outstanding.
+**Last Updated**: September 29, 2026
+**🧠 Zara (ADR-006) on branch `zara-agent`: all milestones M0–M9 ✅ in source** — brain, chat with tools, memory + activity log, voice (hotkey, spoken replies, Hindi/Hinglish), proactive (briefings, meeting briefs, follow-ups, promises, held pop-ups), recall (local search over email/calendar/chats/notes/documents), actions with approval (email with 30 s undo, calendar), MCP connections (strict trust), routines. M3–M9 not yet user-tested; **next: the user tests everything together in dev mode**, then merge `zara-agent` → `main` (not merged yet) and build the `.exe` when asked. Full detail: HANDOFF.md top section + newest addenda; design: `docs/decisions/ADR-006-zara-personal-agent.md`.
+**Git:** `main` = checkpoint `3a96d64` (everything up to Sept 28). `zara-agent` = M0 `d96f08a` → M1 `ca77fc2` → M2 `94e6181` → M3 `03b4efa` → M4 voice `30d7394` → M5 proactive `0e51869` → test-feedback fixes `6c6271b` → M6 recall `f1c6cf5` → M7 actions `4add13b` → M8 MCP `fb82e71` → M9 routines (see `git log`). Nothing pushed. Merge `zara-agent` → `main` when Zara is complete.
+**Running it:** dev mode — `pnpm --filter @ai-agent/shared build` → `pnpm --filter @ai-agent/api build` → `pnpm --filter @ai-agent/desktop electron:dev` (quit the installed app first; port 4000). The installed `.exe` (Sept 28, 15:17) predates M1–M9; rebuild only when the user asks.
+**Keys:** OpenAI key in the app's Settings → General (encrypted, shared by dev and installed app); Groq optional backup. Real OpenAI chat not yet verified (no OpenAI key in `apps/api/.env`; agent live tests ran over Groq).
+**Tests at last run:** API 736/736, desktop 259/259, workspace typecheck + lint clean. Known flake: `tests/assistant-evaluate.api.test.ts` hook timeout under full-suite load — passes standalone.
 
 ---
 

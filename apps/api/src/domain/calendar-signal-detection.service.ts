@@ -9,6 +9,8 @@ import {
   type SignalsRepository,
 } from "../db/repositories/interventions.repository.js";
 import { prisma } from "../lib/prisma.js";
+import { loadMeetingBrief, type MeetingBrief, type MeetingForBrief } from "./proactive/meeting-brief.js";
+import { createProactiveSettingsService } from "./proactive/proactive-settings.service.js";
 import { detectUpcomingMeeting } from "./signals/calendar/upcoming-meeting.detector.js";
 import type { UpcomingMeetingAttendee } from "./signals/calendar/upcoming-meeting.types.js";
 
@@ -39,11 +41,22 @@ function meetingTitle(title: string | null): string {
   return trimmed && trimmed.length > 0 ? trimmed : "Upcoming meeting";
 }
 
+/** ADR-006 M5: the pre-meeting brief for the 10-minute card, or null (switched off, solo meeting, or it couldn't be built). */
+export type MeetingBriefLoader = (userId: string, event: MeetingForBrief, now: Date) => Promise<MeetingBrief | null>;
+
+const defaultBriefLoader: MeetingBriefLoader = async (userId, event, now) => {
+  const settings = await createProactiveSettingsService().get(userId);
+  if (!settings.preMeetingBriefEnabled) return null;
+  return loadMeetingBrief(userId, event, now);
+};
+
 export function createCalendarSignalDetectionService(dependencies?: {
   events?: CalendarEventsRepository;
   signals?: SignalsRepository;
   interventions?: InterventionsRepository;
+  meetingBrief?: MeetingBriefLoader;
 }) {
+  const briefLoader = dependencies?.meetingBrief ?? defaultBriefLoader;
   const events = dependencies?.events ?? createCalendarEventsRepository(prisma);
   const signals = dependencies?.signals ?? createSignalsRepository(prisma);
   const interventions =
@@ -110,6 +123,8 @@ export function createCalendarSignalDetectionService(dependencies?: {
 
         const existingIntervention = await interventions.findBySignalId(signal.id);
         if (!existingIntervention) {
+          // The brief is a nice-to-have: it must never stop the alert itself.
+          const brief = await briefLoader(userId, event, now).catch(() => null);
           await interventions.create({
             userId,
             signalId: signal.id,
@@ -121,6 +136,7 @@ export function createCalendarSignalDetectionService(dependencies?: {
             actionPayload: {
               sourceUrl: event.sourceUrl,
               availableActions: AVAILABLE_ACTIONS,
+              ...(brief ? { brief } : {}),
             },
           });
           interventionsCreated += 1;

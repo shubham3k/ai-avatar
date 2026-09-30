@@ -28,7 +28,7 @@ function extractEmailAddress(token: string): string {
   return (match ? match[1]! : token).trim();
 }
 
-function parseFromHeader(raw: string | null): {
+export function parseFromHeader(raw: string | null): {
   fromEmail: string;
   fromName: string | null;
 } {
@@ -69,7 +69,7 @@ function resolveReceivedAt(message: NormalizedGmailMessage): Date {
   return new Date();
 }
 
-function toEmailInput(userId: string, message: NormalizedGmailMessage, now: Date) {
+export function toEmailInput(userId: string, message: NormalizedGmailMessage, now: Date) {
   const { fromEmail, fromName } = parseFromHeader(message.from);
   return {
     userId,

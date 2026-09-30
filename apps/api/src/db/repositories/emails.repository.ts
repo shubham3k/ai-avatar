@@ -29,6 +29,8 @@ export interface UpsertEmailInput {
   labels: string[];
   sourceUrl: string | null;
   rawUpdatedAt: Date;
+  /** M5: sent mail only — the user's own text (trimmed), for promise detection. Omit to leave unchanged. */
+  bodyText?: string | null;
 }
 
 export interface UpsertEmailResult {
@@ -74,6 +76,7 @@ export function createEmailsRepository(prisma: PrismaClient): EmailsRepository {
       labels: encodeStringArray(input.labels),
       sourceUrl: input.sourceUrl,
       rawUpdatedAt: input.rawUpdatedAt,
+      ...(input.bodyText !== undefined ? { bodyText: input.bodyText } : {}),
     };
 
     if (existing) {

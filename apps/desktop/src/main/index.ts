@@ -2,10 +2,13 @@ import { join } from "node:path";
 import {
   app,
   BrowserWindow,
+  dialog,
+  globalShortcut,
   ipcMain,
   Menu,
   type MenuItemConstructorOptions,
   nativeImage,
+  powerMonitor,
   safeStorage,
   session,
   shell,
@@ -17,12 +20,15 @@ import { resolveApiRoot } from "./api-location.js";
 import { startEmbeddedApiServer, type EmbeddedApiServer } from "./api-server.js";
 import { ensureEncryptionKey, loadUserConfig, saveUserConfig } from "./app-config.js";
 import { formatClockTime } from "./format-time.js";
+import { createHotkeyManager, DEFAULT_CHAT_HOTKEY, type HotkeyManager } from "./hotkey.js";
+import { createFocusMonitor, type FocusMonitor } from "./focus-monitor.js";
+import { createProactiveScheduler, type ProactiveScheduler } from "./proactive-scheduler.js";
 import { runMigrations } from "./migrate.js";
 import { createPauseState } from "./pause-state.js";
 import { createSyncScheduler, type SyncScheduler } from "./sync-scheduler.js";
 import { TRAY_ICON_DATA_URL } from "./tray-icon.js";
 import { createOverlayWindow } from "./windows/overlay-window.js";
-import { registerIpc } from "./ipc/register-ipc.js";
+import { DEFAULT_OPENAI_MODEL, registerIpc } from "./ipc/register-ipc.js";
 
 const PAUSE_DURATIONS_MS: Array<{ label: string; ms: number }> = [
   { label: "For 30 minutes", ms: 30 * 60_000 },
@@ -33,6 +39,9 @@ const PAUSE_DURATIONS_MS: Array<{ label: string; ms: number }> = [
 let mainWindow: BrowserWindow | null = null;
 let embeddedApi: EmbeddedApiServer | null = null;
 let syncScheduler: SyncScheduler | null = null;
+let hotkeys: HotkeyManager | null = null;
+let focusMonitor: FocusMonitor | null = null;
+let proactive: ProactiveScheduler | null = null;
 // Module-level, not local to whenReady(): Electron garbage-collects a Tray
 // with no other references, silently removing the icon from the system
 // tray — a bug that's invisible until someone actually looks for the icon,
@@ -61,6 +70,8 @@ app.whenReady().then(async () => {
 
   const config = loadConfig();
   const userDataDir = app.getPath("userData");
+  // ADR-006 M6: the local search model (~120 MB) is downloaded once, into app data.
+  if (!process.env.RECALL_MODEL_DIR) process.env.RECALL_MODEL_DIR = join(userDataDir, "models");
   const userConfig = loadUserConfig(userDataDir, safeStorage);
 
   // A Groq key saved through the settings UI takes precedence over
@@ -70,6 +81,17 @@ app.whenReady().then(async () => {
     process.env.GROQ_API_KEY = userConfig.groqApiKey;
   }
   const groqKeyConfigured = Boolean(userConfig.groqApiKey ?? process.env.GROQ_API_KEY);
+
+  // ADR-006: OpenAI is the primary provider (Groq the optional fallback).
+  // Same precedence: values saved through Settings win over .env.
+  if (userConfig.openaiApiKey) {
+    process.env.OPENAI_API_KEY = userConfig.openaiApiKey;
+  }
+  if (userConfig.openaiModel) {
+    process.env.OPENAI_MODEL = userConfig.openaiModel;
+  }
+  const openaiKeyConfigured = Boolean(userConfig.openaiApiKey ?? process.env.OPENAI_API_KEY);
+  const openaiModel = process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_MODEL;
 
   // Phase 4.7: same precedence as the Groq key — a value saved through
   // Settings wins over whatever (if anything) is in .env. Deliberately
@@ -187,6 +209,22 @@ app.whenReady().then(async () => {
     devServerUrl: "http://localhost:5173",
   });
 
+  // ADR-006 M4: the global shortcut brings Zara up from anywhere. The
+  // renderer decides what a press means (open chat, or start/stop talking
+  // when it's already open).
+  hotkeys = createHotkeyManager({
+    globalShortcut,
+    initial: userConfig.chatHotkey ?? DEFAULT_CHAT_HOTKEY,
+    onPress: () => {
+      const win = mainWindow;
+      if (!win || win.isDestroyed()) return;
+      if (!win.isVisible()) win.show();
+      win.focus();
+      win.webContents.send("zara:hotkey");
+    },
+    logger: { warn: (message) => console.warn(`[hotkey] ${message}`) },
+  });
+
   registerIpc({
     ipcMain,
     getWindow: () => mainWindow,
@@ -194,6 +232,8 @@ app.whenReady().then(async () => {
     apiUrl,
     shell,
     groqKeyConfigured,
+    openaiKeyConfigured,
+    openaiModel,
     googleOAuthConfigured,
     secureStorageAvailable: safeStorage.isEncryptionAvailable(),
     startupError,
@@ -203,6 +243,38 @@ app.whenReady().then(async () => {
       saveUserConfig(userDataDir, safeStorage, { groqApiKey: key });
       app.relaunch();
       app.exit(0);
+    },
+    saveOpenAiKeyAndRestart: (key) => {
+      saveUserConfig(userDataDir, safeStorage, { openaiApiKey: key });
+      app.relaunch();
+      app.exit(0);
+    },
+    saveOpenAiModelAndRestart: (model) => {
+      saveUserConfig(userDataDir, safeStorage, { openaiModel: model });
+      app.relaunch();
+      app.exit(0);
+    },
+    getHoldState: () => proactive?.hold() ?? { holding: false, reason: null },
+    chooseFolders: async () => {
+      const options = {
+        title: "Choose the folders Zara may read",
+        properties: ["openDirectory" as const, "multiSelections" as const],
+      };
+      const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+      return result.canceled ? [] : result.filePaths;
+    },
+    chooseFolder: async () => {
+      const options = { title: "Choose the folder Zara should read", properties: ["openDirectory" as const, "createDirectory" as const] };
+      const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
+    onProactiveSettingsChanged: () => proactive?.userReturned(),
+    getChatHotkey: () => hotkeys?.current() ?? null,
+    changeChatHotkey: (accelerator) => {
+      if (!hotkeys) return { ok: false, message: "Shortcuts aren't available." };
+      const result = hotkeys.change(accelerator);
+      if (result.ok) saveUserConfig(userDataDir, safeStorage, { chatHotkey: result.accelerator });
+      return result;
     },
     saveGoogleCredentialsAndRestart: (clientId, clientSecret) => {
       saveUserConfig(userDataDir, safeStorage, {
@@ -308,6 +380,33 @@ app.whenReady().then(async () => {
       },
     });
     syncScheduler.start();
+
+    // ADR-006 M5: hold pop-ups while the user is presenting, full-screen,
+    // or on a call (or in quiet hours), and deliver the morning briefing /
+    // wrap-up when they're at the PC.
+    const sendToWindow = (channel: string, payload: unknown) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+    };
+    focusMonitor = createFocusMonitor({
+      ownExecutablePath: process.execPath,
+      onChange: () => proactive?.hold(),
+      logger: { warn: (message) => console.warn(`[focus] ${message}`) },
+    });
+    proactive = createProactiveScheduler({
+      api: instrumentedApi,
+      focus: () => focusMonitor?.current() ?? { busy: false, reason: null },
+      idleSeconds: () => powerMonitor.getSystemIdleTime(),
+      isPaused: () => pauseState.isPaused(),
+      onHoldChange: (state) => sendToWindow("proactive:hold", state),
+      onBriefing: (briefing) => {
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show();
+        sendToWindow("zara:briefing", briefing);
+      },
+      logger: { error: (message, err) => console.error(`[proactive] ${message}`, err) },
+    });
+    proactive.start();
+    powerMonitor.on("unlock-screen", () => proactive?.userReturned());
+    powerMonitor.on("resume", () => proactive?.userReturned());
   }
 });
 
@@ -315,8 +414,14 @@ app.on("window-all-closed", () => {
   app.quit();
 });
 
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
+});
+
 app.on("before-quit", (event) => {
   syncScheduler?.stop();
+  proactive?.stop();
+  focusMonitor?.stop();
   tray?.destroy();
   tray = null;
   if (!embeddedApi) return;

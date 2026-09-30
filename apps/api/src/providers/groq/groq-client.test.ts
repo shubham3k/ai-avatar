@@ -43,6 +43,8 @@ describe("groq client", () => {
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         model: "qwen/qwen3-32b",
+        // Always an explicit cap under Groq's free-plan 1,000 output tokens/minute.
+        max_completion_tokens: 800,
         messages: [
           { role: "system", content: "system prompt" },
           { role: "user", content: "user prompt" },
@@ -194,14 +196,14 @@ describe("groq client", () => {
       ).rejects.toThrow(/rejected the request credentials/i);
     });
 
-    it("throws when the SDK returns an empty transcription", async () => {
+    it("returns an empty string (not an error) when nothing was heard — the service reports it as 'didn't catch anything'", async () => {
       transcriptionsCreate.mockResolvedValue({ text: "" });
       const { createGroqProvider } = await import("./groq-client.js");
       const provider = createGroqProvider({ apiKey: "key" });
 
       await expect(
         provider.transcribeAudio({ audio: Buffer.from("x"), mimeType: "audio/webm" }),
-      ).rejects.toThrow(/empty transcription/i);
+      ).resolves.toBe("");
     });
   });
 });

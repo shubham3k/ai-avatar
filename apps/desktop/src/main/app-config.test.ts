@@ -58,6 +58,21 @@ describe("app-config", () => {
     expect(raw).not.toMatch(/gsk_super_secret/);
   });
 
+  it("persists the OpenAI key (encrypted) and model, keeping other fields on partial saves (ADR-006)", () => {
+    const safeStorage = makeFakeSafeStorage(true);
+    saveUserConfig(dir, safeStorage, { groqApiKey: "gsk_existing" });
+    saveUserConfig(dir, safeStorage, { openaiApiKey: "sk-test-123" });
+    saveUserConfig(dir, safeStorage, { openaiModel: "gpt-5-nano" });
+
+    const loaded = loadUserConfig(dir, safeStorage);
+    expect(loaded).toMatchObject({
+      groqApiKey: "gsk_existing",
+      openaiApiKey: "sk-test-123",
+      openaiModel: "gpt-5-nano",
+    });
+    expect(readFileSync(join(dir, "config.json"), "utf-8")).not.toContain("sk-test-123");
+  });
+
   it("persists and reloads an auto-generated encryption key", () => {
     const safeStorage = makeFakeSafeStorage(true);
     const key = generateEncryptionKey();

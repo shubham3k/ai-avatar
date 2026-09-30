@@ -37,7 +37,7 @@ describe("google oauth service", () => {
     expect(() => service.getAuthorizationUrl("state")).toThrow(/not configured/);
   });
 
-  it("generates an authorization URL requesting offline access and read-only scopes", async () => {
+  it("generates an authorization URL requesting offline access and least-privilege scopes (ADR-006 M7)", async () => {
     generateAuthUrl.mockReturnValue("https://accounts.google.com/o/oauth2/auth?mock=1");
     const { createGoogleOAuthService } = await import("./google-oauth.service.js");
     const service = createGoogleOAuthService(config);
@@ -57,9 +57,25 @@ describe("google oauth service", () => {
       }),
     );
     const scopes: string[] = generateAuthUrl.mock.calls[0]![0].scope;
-    expect(scopes.some((s) => s.includes("gmail.modify") || s.includes("gmail.send"))).toBe(
-      false,
+    // M7: send-only mail, events-only calendar, read-only Drive — never
+    // mailbox modification or full-account access.
+    expect(scopes).toEqual(
+      expect.arrayContaining([
+        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/drive.readonly",
+      ]),
     );
+    expect(
+      scopes.some(
+        (s) =>
+          s.includes("gmail.modify") ||
+          s.includes("gmail.compose") ||
+          s === "https://mail.google.com/" ||
+          s === "https://www.googleapis.com/auth/drive" ||
+          s === "https://www.googleapis.com/auth/calendar",
+      ),
+    ).toBe(false);
   });
 
   it("exchanges a code for tokens and resolves the account identity", async () => {

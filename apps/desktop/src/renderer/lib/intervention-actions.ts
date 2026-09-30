@@ -3,7 +3,7 @@ import type { InterventionDto } from "@ai-agent/shared";
 export type InterventionActionVariant = "primary" | "secondary" | "outline";
 
 export interface InterventionActionSpec {
-  id: "open" | "done" | "remind";
+  id: "open" | "done" | "remind" | "read";
   label: string;
   variant: InterventionActionVariant;
 }
@@ -24,8 +24,19 @@ export function sourceUrlOf(intervention: InterventionDto): string | null {
  * server-side concept of a third, non-destructive "dismiss" (see
  * InterventionOverlay's comment), so one isn't fabricated here.
  */
+/** M9: routine results open Zara's chat with the report. */
+export function conversationIdOf(intervention: InterventionDto): string | null {
+  if (intervention.actionType !== "open_chat") return null;
+  const payload = intervention.actionPayload;
+  const id = payload && typeof payload === "object" ? (payload as Record<string, unknown>).conversationId : null;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
 export function deriveInterventionActions(intervention: InterventionDto): InterventionActionSpec[] {
   const actions: InterventionActionSpec[] = [];
+  if (conversationIdOf(intervention) !== null) {
+    actions.push({ id: "read", label: "Read it", variant: "outline" });
+  }
   if (sourceUrlOf(intervention) !== null) {
     actions.push({ id: "open", label: "Open", variant: "outline" });
   }

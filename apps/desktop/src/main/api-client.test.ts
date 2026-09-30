@@ -121,13 +121,15 @@ describe("desktop api client", () => {
     expect(result).toEqual(status);
   });
 
-  it("checkNow runs reminders -> sync -> detect-signals -> sync -> detect-signals -> evaluate in order and returns the evaluate result", async () => {
+  it("checkNow runs reminders -> sync -> detect-signals -> sent mail -> sync -> detect-signals -> evaluate in order and returns the evaluate result", async () => {
     const evaluateResult = { results: [{ situationId: "sit_1", created: true }] };
     const fetchImpl = vi
       .fn<FetchLike>()
       .mockResolvedValueOnce(okResponse({ analyzed: 0, interventionsCreated: 0 })) // reminders detect-signals
       .mockResolvedValueOnce(okResponse({ fetched: 1, created: 1, updated: 0 })) // gmail sync
       .mockResolvedValueOnce(okResponse({ created: 0 })) // gmail detect-signals
+      .mockResolvedValueOnce(okResponse({ synced: 1, analyzed: 1, promiseReminders: 0, followUps: 0 })) // M5 sent mail
+      .mockResolvedValueOnce(okResponse({ started: true })) // M6 recall index
       .mockResolvedValueOnce(okResponse({ fetched: 1, created: 1, updated: 0 })) // calendar sync
       .mockResolvedValueOnce(okResponse({ created: 0 })) // calendar detect-signals
       .mockResolvedValueOnce(okResponse(evaluateResult)); // assistant evaluate
@@ -139,12 +141,32 @@ describe("desktop api client", () => {
       "http://localhost:4000/api/v1/reminders/detect-signals",
       "http://localhost:4000/api/v1/integrations/google/gmail/sync",
       "http://localhost:4000/api/v1/integrations/google/gmail/detect-signals",
+      "http://localhost:4000/api/v1/proactive/sent-mail",
+      "http://localhost:4000/api/v1/recall/index",
       "http://localhost:4000/api/v1/integrations/google/calendar/sync",
       "http://localhost:4000/api/v1/integrations/google/calendar/detect-signals",
       "http://localhost:4000/api/v1/assistant/evaluate",
     ]);
     expect(fetchImpl.mock.calls.every((call) => call[1]?.method === "POST")).toBe(true);
     expect(result).toEqual(evaluateResult);
+  });
+
+  it("checkNow carries on when the sent-mail and recall steps fail (M5/M6, best effort)", async () => {
+    const fail = { ok: false, status: 502, json: async () => ({ error: { code: "provider_error", message: "AI down" } }) };
+    const fetchImpl = vi
+      .fn<FetchLike>()
+      .mockResolvedValueOnce(okResponse({}))
+      .mockResolvedValueOnce(okResponse({}))
+      .mockResolvedValueOnce(okResponse({}))
+      .mockResolvedValueOnce(fail)
+      .mockResolvedValueOnce(fail)
+      .mockResolvedValueOnce(okResponse({}))
+      .mockResolvedValueOnce(okResponse({}))
+      .mockResolvedValueOnce(okResponse({ results: [] }));
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+
+    await expect(client.checkNow()).resolves.toEqual({ results: [] });
+    expect(fetchImpl).toHaveBeenCalledTimes(8);
   });
 
   it("checkNow stops and throws at the first step that fails, without calling later steps", async () => {
@@ -247,7 +269,7 @@ describe("desktop api client", () => {
     await expect(client.fetchInbox()).rejects.toMatchObject({ status: 500, apiMessage: null });
   });
 
-  it("checkDue runs only the local reminder and calendar detection steps, in order", async () => {
+  it("checkDue runs only local steps, in order — reminders, due approved emails (M7 backup), due routines (M9), calendar detection", async () => {
     const fetchImpl = vi.fn<FetchLike>().mockResolvedValue(okResponse({}));
     const client = createApiClient("http://localhost:4000", fetchImpl);
 
@@ -255,8 +277,56 @@ describe("desktop api client", () => {
 
     expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
       "http://localhost:4000/api/v1/reminders/detect-signals",
+      "http://localhost:4000/api/v1/actions/execute-due",
+      "http://localhost:4000/api/v1/routines/run-due",
       "http://localhost:4000/api/v1/integrations/google/calendar/detect-signals",
     ]);
+  });
+
+  it("streams a chat reply, handing each Server-Sent Event over as it arrives (chunks may split events)", async () => {
+    const encoder = new TextEncoder();
+    const chunks = [
+      'data: {"type":"conversation","id":"c1","title":"hi"}\n\ndata: {"type":"del',
+      'ta","text":"Hel"}\n\n',
+      'data: {"type":"delta","text":"lo"}\r\n\r\ndata: not-json\n\n',
+      'data: {"type":"done","message":{"id":"m1"}}',
+    ];
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        controller.close();
+      },
+    });
+    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue({ ok: true, status: 200, json: async () => ({}), body });
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+    const events: unknown[] = [];
+
+    await client.sendChatMessage({ text: "hi" }, (e) => events.push(e));
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://localhost:4000/api/v1/chat/messages",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ text: "hi" }) }),
+    );
+    expect(events).toEqual([
+      { type: "conversation", id: "c1", title: "hi" },
+      { type: "delta", text: "Hel" },
+      { type: "delta", text: "lo" },
+      { type: "done", message: { id: "m1" } },
+    ]);
+  });
+
+  it("throws the API's message when a chat request is rejected before streaming", async () => {
+    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: { code: "not_found", message: "Conversation not found." } }),
+    });
+    const client = createApiClient("http://localhost:4000", fetchImpl);
+
+    await expect(client.sendChatMessage({ conversationId: "x", text: "hi" }, () => {})).rejects.toMatchObject({
+      status: 404,
+      apiMessage: "Conversation not found.",
+    });
   });
 
   it("encodes intervention ids in URLs", async () => {
