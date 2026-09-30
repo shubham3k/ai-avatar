@@ -1,29 +1,39 @@
 # Project Handoff Document
 
-**Last Updated:** September 29, 2026
+**Last Updated:** September 30, 2026 (end of session — next session continues from here)
 **Phase Completed:** Phases 1–4.7 (foundation → Google OAuth/Gmail/Calendar → daily context → SQLite, single-process desktop, onboarding, secrets, auto-migrations, Windows packaging), the Sept 18–28 feature stretch (background sync, tray, reminders, dock UI), and **all Zara milestones M0–M9** (see below).
 
-**Current work — Zara, a local-first personal AI agent (design: `docs/decisions/ADR-006-zara-personal-agent.md`, read it first).** All Zara work is on git branch **`zara-agent`**, created from `main` after checkpoint `3a96d64`; merge back to `main` when the milestones are complete (user's instruction). Commits so far: M0 `d96f08a`, M1 `ca77fc2`, M2 `94e6181`, M3 `03b4efa`, M4 voice `30d7394`, M5 proactive `0e51869`, test-feedback fixes (memory across chats, Hindi/Hinglish transcription — see `git log`). Working tree clean at end of the Sept 29 session.
+**Current work — Zara, a local-first personal AI agent (design: `docs/decisions/ADR-006-zara-personal-agent.md`, incl. its "Implementation notes"; read it first).** All Zara work is on git branch **`zara-agent`**, created from `main` after checkpoint `3a96d64`. **Not merged into `main` yet** — the user merges after testing everything. Nothing pushed.
+
+Commits: M0 `d96f08a` · M1 `ca77fc2` · M2 `94e6181` · M3 `03b4efa` · M4 voice `30d7394` · M5 proactive `0e51869` · test-feedback fixes `6c6271b` · M6 recall `f1c6cf5` · M7 actions `4add13b` · M8 MCP `fb82e71` · M9 routines `4bfa64e`. Working tree clean.
 
 | Milestone | Status |
 | --- | --- |
 | M0 housekeeping (ADR-006, Groq token cap) | ✅ |
 | M1 brain (OpenAI `gpt-6-luna` + Groq fallback, model picker, usage) | ✅ |
-| M2 chat with tools (streaming, history, voice into chat, auto-hide) | ✅ user tested the chat panel in dev mode |
-| M3 memory, redaction, incognito, activity log + undo | ✅ in source, not yet user-tested |
-| M4 voice (hotkey Ctrl+Shift+Space, spoken replies, voice picker, hands-free, interrupt, Hindi/Hinglish) | ✅ in source, not yet user-tested (the real OpenAI voice needs the user's key) |
-| M5 proactive (briefings, pre-meeting summary, follow-ups, promises, held pop-ups, wrap-up) | ✅ in source, not yet user-tested (real sent-mail sync needs the user's Google account) |
-| M6 recall (local index over email/chats/notes/`Documents\Zara`, notes, people memory) | ✅ in source, not yet user-tested |
-| M7 approved actions (Google re-consent, approval cards, email send with 30 s undo, calendar actions, writing style) | ✅ in source, not yet user-tested (needs a Google reconnect for the new permissions) |
-| M8 MCP connections (local files, Google Drive, web search, GitHub, Notion, Slack, read-only browser, custom; strict trust) | ✅ in source, not yet user-tested |
-| M9 routines (plain-language, Settings → Routines, action routines ask every run) | ✅ in source, not yet user-tested |
-| **Next** | the user tests everything together (dev mode), then merge `zara-agent` → `main` and, when asked, build the `.exe` |
+| M2 chat with tools (streaming, history, voice into chat, auto-hide) | ✅ user tested in dev mode |
+| M3 memory, redaction, incognito, activity log + undo | ✅ user found "memory doesn't carry across chats" → fixed in `6c6271b` (explicit "remember…" forces a tool call) — re-test |
+| M4 voice (hotkey Ctrl+Shift+Space, spoken replies, voice picker, hands-free, interrupt, Hindi/Hinglish) | ✅ user found Hindi/Hinglish recognition weak → `gpt-transcribe` + "Write my Hindi as" setting in `6c6271b` — re-test |
+| M5 proactive (briefings, pre-meeting brief, follow-ups, promises in sent mail, held pop-ups, wrap-up) | ✅ in source, not user-tested |
+| M6 recall (local search: email/calendar/chats/memory/notes/`Documents\Zara`; people profiles) | ✅ in source, not user-tested |
+| M7 actions with approval (email send + 30 s undo, calendar create/move/cancel, writing style) | ✅ in source, not user-tested — **needs Google reconnect** (Settings → Actions) |
+| M8 MCP connections (local files, Google Drive, web search, GitHub, Notion, Slack, read-only browser, custom; strict trust) | ✅ in source, not user-tested |
+| M9 routines (plain language, Settings → Routines, action routines ask every run) | ✅ in source, not user-tested |
 
-**How the user runs it right now:** dev mode, not the installer — `pnpm --filter @ai-agent/shared build`, `pnpm --filter @ai-agent/api build`, then `pnpm --filter @ai-agent/desktop electron:dev` (quit any installed copy first: both use port 4000). The last packaged `.exe` (Sept 28, 15:17) predates M1–M9; rebuild (`npm run package:win` in `apps/desktop`) **only when the user asks**.
+**Where things stand (Sept 30):** the user built the installer themselves — `apps/desktop/release/AI Executive Agent Setup 0.1.0.exe` (Sept 30, 11:16, ~264 MB, built from `4bfa64e`, i.e. includes M0–M9) — and is about to **test all features together**. The next session is for **fixing whatever they report** and finishing pending tasks.
 
-**Keys:** the OpenAI key goes in the app's **Settings → General → "AI provider (OpenAI)"** (encrypted in `%APPDATA%\@ai-agent\desktop\config.json`, shared by dev mode and the installed app). `apps/api/.env` has no OpenAI key (only Groq), so agent-side live tests run over Groq; a real OpenAI chat has **not** been verified yet. `.env.test` blanks all AI keys so tests never make billed calls.
+**Pending / known items for the next session:**
+1. Fix issues from the user's all-features test (they'll send screenshots/descriptions).
+2. Things never verified for real (no OpenAI key or write-scoped Google grant in the dev env): real OpenAI chat/voice (TTS + `gpt-transcribe`), Google reconnect with `gmail.send` / `calendar.events` / `drive.readonly`, a real email send / calendar change, month-of-email backfill, sent-mail promises/follow-ups on real mail, Drive, npx-based connections (need Node.js on the PC), focus detection during a real presentation/Teams/Zoom call, a real morning briefing, **the packaged `.exe` with the new native dependency** (`onnxruntime-node` for the local search model, installed by `prepare-api-resources.mjs` into `resources/api`), and the new Settings tabs / approval cards inside the running Electron app.
+3. Known rough edges: Groq's free tier is slow with the bigger tool list (30–70 s per reply in tests) and sometimes narrates ("Let me check…") or writes clumsy phrases; Settings now has 9 tabs (wrapping to two rows); calendar events created < 5 min before start may alert late.
+4. After the user is happy: merge `zara-agent` → `main` (their instruction), then rebuild the `.exe` only when they say "build the exe".
+5. Later list (ADR-006, not started): Telegram, screen understanding, wake word, time tracking, Ollama/local mode, web dashboard, Mac, behaviour learning with a "What Zara has learned" page; packaging polish (code signing, icon); clean-machine install test.
 
-**Working rules with this user:** discuss before building new directions; never rebuild the `.exe` or commit unasked (commits on `zara-agent` per milestone are fine — the user approved that flow); after each milestone run typecheck + lint + all tests and a live check where possible.
+**How to run:** dev mode — quit any installed copy first (both use port 4000), then `pnpm --filter @ai-agent/shared build`, `pnpm --filter @ai-agent/api build`, `pnpm --filter @ai-agent/desktop electron:dev`. Installer: `cd apps/desktop` → `npm run package:win` (or `npm run package:win:dir` for an unpacked test build) — **only when the user asks**. Starting the app auto-applies Prisma migrations (M5–M9 added `zara_m5_proactive`, `zara_m6_recall`, `zara_m7_actions`, `zara_m8_mcp`, `zara_m9_routines`).
+
+**Keys & data:** OpenAI key in the app's **Settings → General** (encrypted in `%APPDATA%\@ai-agent\desktop\config.json`, shared by dev and installed app). `apps/api/.env` has only a Groq key, so agent live tests run over Groq. `.env.test` blanks AI keys; `tests/setup.ts` also sets `RECALL_DISABLE_EMBEDDINGS=1` and a temp `ZARA_DOCUMENTS_FOLDER` so tests never download the model or touch real Documents. The local search model downloads on first use to `%APPDATA%\@ai-agent\desktop\models`. **Live checks always run on a COPY of `apps/api/prisma/dev.db`** (in the session scratchpad; migrate the copy with `DATABASE_URL=file:<copy> npx prisma migrate deploy`) — never the user's real data; new migrations are created with `prisma migrate dev` against a scratch DB, never `dev.db`.
+
+**Working rules with this user:** first check `git branch --show-current` = `zara-agent` and a clean tree; briefly confirm a plan before building anything sizeable (they answer quickly); discuss before new directions; after each change run typecheck + lint + all tests (API + desktop) and a live check where possible; update HANDOFF.md / CURRENT_STATUS.md / ADR-006; commit on `zara-agent` (fine without asking); **never push, never rebuild the `.exe` unless they say "build the exe"**; their OpenAI key/tokens go in the app's Settings, never in chat. Tooling notes: pnpm 11 needs every package with install scripts listed under `allowBuilds` in `pnpm-workspace.yaml`; in Git Bash, heredocs containing backticks break — write patch scripts to a file instead.
 
 ---
 

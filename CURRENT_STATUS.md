@@ -1,10 +1,10 @@
 # Current Status - Quick Reference
 
-**Last Updated**: September 29, 2026
-**🧠 Zara (ADR-006) on branch `zara-agent`: all milestones M0–M9 ✅ in source** — brain, chat with tools, memory + activity log, voice (hotkey, spoken replies, Hindi/Hinglish), proactive (briefings, meeting briefs, follow-ups, promises, held pop-ups), recall (local search over email/calendar/chats/notes/documents), actions with approval (email with 30 s undo, calendar), MCP connections (strict trust), routines. M3–M9 not yet user-tested; **next: the user tests everything together in dev mode**, then merge `zara-agent` → `main` (not merged yet) and build the `.exe` when asked. Full detail: HANDOFF.md top section + newest addenda; design: `docs/decisions/ADR-006-zara-personal-agent.md`.
-**Git:** `main` = checkpoint `3a96d64` (everything up to Sept 28). `zara-agent` = M0 `d96f08a` → M1 `ca77fc2` → M2 `94e6181` → M3 `03b4efa` → M4 voice `30d7394` → M5 proactive `0e51869` → test-feedback fixes `6c6271b` → M6 recall `f1c6cf5` → M7 actions `4add13b` → M8 MCP `fb82e71` → M9 routines (see `git log`). Nothing pushed. Merge `zara-agent` → `main` when Zara is complete.
-**Running it:** dev mode — `pnpm --filter @ai-agent/shared build` → `pnpm --filter @ai-agent/api build` → `pnpm --filter @ai-agent/desktop electron:dev` (quit the installed app first; port 4000). The installed `.exe` (Sept 28, 15:17) predates M1–M9; rebuild only when the user asks.
-**Keys:** OpenAI key in the app's Settings → General (encrypted, shared by dev and installed app); Groq optional backup. Real OpenAI chat not yet verified (no OpenAI key in `apps/api/.env`; agent live tests ran over Groq).
+**Last Updated**: September 30, 2026
+**🧠 Zara (ADR-006) on branch `zara-agent`: all milestones M0–M9 ✅ in source** — brain, chat with tools, memory + activity log, voice (hotkey, spoken replies, Hindi/Hinglish), proactive (briefings, meeting briefs, follow-ups, promises, held pop-ups), recall (local search), actions with approval (email with 30 s undo, calendar), MCP connections (strict trust), routines. **The user built the installer (Sept 30, 11:16, from `4bfa64e`) and is testing everything together; the next session fixes what they report.** Not merged into `main`; nothing pushed. Pending list + how to run + working rules: HANDOFF.md top section.
+**Git:** `main` = checkpoint `3a96d64`. `zara-agent` = M0 `d96f08a` → M1 `ca77fc2` → M2 `94e6181` → M3 `03b4efa` → M4 `30d7394` → M5 `0e51869` → fixes `6c6271b` → M6 `f1c6cf5` → M7 `4add13b` → M8 `fb82e71` → M9 `4bfa64e`.
+**Running it:** dev mode — `pnpm --filter @ai-agent/shared build` → `pnpm --filter @ai-agent/api build` → `pnpm --filter @ai-agent/desktop electron:dev` (quit the installed app first; port 4000). Installer: `apps/desktop` → `npm run package:win`, only when the user asks.
+**Keys:** OpenAI key in the app's Settings → General; Groq optional backup; actions need a Google reconnect (Settings → Actions).
 **Tests at last run:** API 736/736, desktop 259/259, workspace typecheck + lint clean. Known flake: `tests/assistant-evaluate.api.test.ts` hook timeout under full-suite load — passes standalone.
 
 ---
