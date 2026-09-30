@@ -21,6 +21,9 @@ import { createPeopleService, type PeopleService } from "../recall/people.servic
 import { getRecallService, type RecallService } from "../recall/recall.service.js";
 import { getActionsService, type ActionDto, type ActionsService } from "../actions/actions.service.js";
 import { getConnectionsService, type ChatConnectionTool, type ConnectionsService } from "../mcp/connections.service.js";
+import { getRoutinesService, type RoutinesService } from "../routines/routines.service.js";
+import { NOT_IN_ROUTINE_RUNS } from "./routine-tools.js";
+import { shortDayLabel } from "../proactive/local-time.js";
 import { isExplicitRememberRequest } from "./remember-intent.js";
 import { buildZaraSystemPrompt } from "./zara-prompt.js";
 import { findTool, MEMORY_WRITE_TOOLS, ZARA_TOOLS, type ToolContext } from "./zara-tools.js";
@@ -175,6 +178,7 @@ export function createZaraAgentService(dependencies?: {
   people?: PeopleService;
   actions?: ActionsService;
   connections?: ConnectionsService;
+  routines?: RoutinesService;
 }) {
   const prisma = dependencies?.prisma ?? defaultPrisma;
   // Shared per process: one search model and one indexing pass at a time.
@@ -182,6 +186,7 @@ export function createZaraAgentService(dependencies?: {
   const people = dependencies?.people ?? createPeopleService({ prisma });
   const actions = dependencies?.actions ?? getActionsService();
   const connections = dependencies?.connections ?? getConnectionsService();
+  const routines = dependencies?.routines ?? getRoutinesService();
   const memory = dependencies?.memory ?? createMemoryService({ prisma });
   const activity = dependencies?.activity ?? createActivityService({ prisma });
   const provider = dependencies?.provider ?? createDefaultLlmProvider();
@@ -202,6 +207,8 @@ export function createZaraAgentService(dependencies?: {
         spoken?: boolean | undefined;
         /** M8: the user just approved this connection-tool card — hand its result to the model. */
         continueActionId?: string | undefined;
+        /** M9: a scheduled routine run (the user isn't watching); the text is the routine's instruction. */
+        routineTitle?: string | undefined;
       },
       emit: (event: ChatEvent) => void,
       now: Date = new Date(),
@@ -218,7 +225,10 @@ export function createZaraAgentService(dependencies?: {
         if (!existing) throw notFoundError("Conversation not found.");
         history = await conversations.recentMessages(conversationId, HISTORY_LIMIT);
       } else {
-        const created = await conversations.create(userId, conversationTitle(text));
+        const created = await conversations.create(
+          userId,
+          request.routineTitle ? conversationTitle(`Routine: ${request.routineTitle} · ${shortDayLabel(now)}`) : conversationTitle(text),
+        );
         conversationId = created.id;
         emit({ type: "conversation", id: created.id, title: created.title });
       }
@@ -239,7 +249,14 @@ export function createZaraAgentService(dependencies?: {
 
       const facts = await memory.list(userId, MEMORY_CONTEXT_LIMIT);
       const messages: ChatTurnMessage[] = [
-        { role: "system", content: buildZaraSystemPrompt(now, facts, { incognito, spoken: request.spoken === true }) },
+        {
+          role: "system",
+          content: buildZaraSystemPrompt(now, facts, {
+            incognito,
+            spoken: request.spoken === true,
+            ...(request.routineTitle ? { routine: request.routineTitle } : {}),
+          }),
+        },
         ...history.map((message): ChatTurnMessage =>
           message.role === "assistant"
             ? { role: "assistant", content: message.content }
@@ -262,6 +279,7 @@ export function createZaraAgentService(dependencies?: {
         actions,
         onAction: (action) => emit({ type: "action", action }),
         conversationId: conversationId ?? null,
+        routines,
         // Logged with whichever provider was answering when Zara acted.
         recordActivity: (entry) => activity.record(userId, { ...entry, provider: answeredBy }),
       };
@@ -272,7 +290,9 @@ export function createZaraAgentService(dependencies?: {
         connections,
       };
       const tools = [
-        ...(incognito ? toolDefinitions.filter((tool) => !MEMORY_WRITE_TOOLS.has(tool.name)) : toolDefinitions),
+        ...toolDefinitions.filter(
+          (tool) => !(incognito && MEMORY_WRITE_TOOLS.has(tool.name)) && !(request.routineTitle && NOT_IN_ROUTINE_RUNS.has(tool.name)),
+        ),
         ...connectionList.map((entry) => ({
           name: entry.qualifiedName,
           description: `[${entry.connectionName}${entry.tool.readOnly ? "" : " — changes things, always asks the user"}] ${entry.tool.description}`.slice(0, 900),

@@ -4,7 +4,7 @@ import { InterventionOverlay } from "./components/InterventionOverlay";
 import { InterventionStatus } from "./components/InterventionStatus";
 import { ChatPanel } from "./components/ChatPanel";
 import { Settings } from "./components/Settings";
-import type { InterventionActionSpec } from "./lib/intervention-actions";
+import { conversationIdOf, type InterventionActionSpec } from "./lib/intervention-actions";
 import { getChatAutoHideSeconds } from "./lib/preferences";
 import { useInterventionPolling } from "./state/use-intervention-polling";
 import { useZaraChat } from "./state/use-zara-chat";
@@ -201,13 +201,25 @@ export default function App() {
     }
   }, [intervention]);
 
+  // M9: "Read it" on a routine's card opens its report in the chat (and clears the card).
+  const openConversationInChat = chat.openConversation;
+  const handleRead = useCallback(async () => {
+    const conversationId = intervention ? conversationIdOf(intervention) : null;
+    if (!conversationId) return;
+    setShowSettings(false);
+    await openConversationInChat(conversationId);
+    setChatOpen(true);
+    void handleDone();
+  }, [intervention, openConversationInChat, handleDone]);
+
   const handleAction = useCallback(
     (actionId: InterventionActionSpec["id"]) => {
-      if (actionId === "done") void handleDone();
+      if (actionId === "read") void handleRead();
+      else if (actionId === "done") void handleDone();
       else if (actionId === "remind") void handleSnooze();
       else if (actionId === "open") void handleOpen();
     },
-    [handleDone, handleSnooze, handleOpen],
+    [handleDone, handleSnooze, handleOpen, handleRead],
   );
 
   const { stopListening, stopSpeaking } = chat;

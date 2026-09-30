@@ -350,6 +350,31 @@ export function registerIpc(options: {
     );
   });
 
+  // ADR-006 (M9): routines.
+  ipcMain.handle("routines:list", async () => settle(() => api.listRoutines(), "Couldn't load your routines."));
+  ipcMain.handle("routines:create", async (_event, text: unknown) => {
+    if (typeof text !== "string" || text.trim().length < 5 || text.length > 500) {
+      return { ok: false, message: "Describe the routine in a sentence, e.g. \"every Monday at 9, summarize unanswered emails\"." } satisfies ChatActionResult<never>;
+    }
+    return settle(() => api.createRoutine(text.trim()), "Couldn't set that routine up.");
+  });
+  ipcMain.handle("routines:update", async (_event, id: unknown, patch: unknown) => {
+    const value = patch && typeof patch === "object" && !Array.isArray(patch) ? (patch as Record<string, unknown>) : {};
+    const clean: Record<string, unknown> = {};
+    if (typeof value.enabled === "boolean") clean.enabled = value.enabled;
+    for (const key of ["title", "instruction", "when"] as const) {
+      if (typeof value[key] === "string" && (value[key] as string).length <= 1000) clean[key] = value[key];
+    }
+    if (Object.keys(clean).length === 0) return { ok: false, message: "Nothing to change." } satisfies ChatActionResult<never>;
+    return settle(() => api.updateRoutine(requireId(id, "routine id"), clean), "Couldn't change that routine.");
+  });
+  ipcMain.handle("routines:delete", async (_event, id: unknown) =>
+    settle(() => api.deleteRoutine(requireId(id, "routine id")), "Couldn't delete that routine."),
+  );
+  ipcMain.handle("routines:run", async (_event, id: unknown) =>
+    settle(() => api.runRoutine(requireId(id, "routine id")), "Couldn't start it."),
+  );
+
   // ADR-006 (M8): connections. Folders come from the native picker here, never from the renderer.
   ipcMain.handle("connections:list", async () => settle(() => api.listConnections(), "Couldn't load your connections."));
   ipcMain.handle("connections:add", async (_event, input: unknown) => {

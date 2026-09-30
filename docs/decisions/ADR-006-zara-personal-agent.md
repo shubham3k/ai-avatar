@@ -127,11 +127,11 @@ Embedded API    agent runtime (loop: model → tool call → validated execution
 | 6 ✅ | Recall | Local index over email/chats/notes/`Documents\Zara`, notes, people memory (experimental) |
 | 7 ✅ | Actions | Google re-consent, approval cards, email send with 30 s undo, calendar actions, writing style |
 | 8 ✅ | MCP | Add-connection screen, strict trust, servers in the order above |
-| 9 | Routines | Plain-language routines, Routines page |
+| 9 ✅ | Routines | Plain-language routines, Routines page |
 
 Development happens on `zara-agent`; it is merged into `main` when complete.
 
-### Implementation notes (deviations found during M1–M8)
+### Implementation notes (deviations found during M1–M9)
 
 - **`create_reminder` takes the user's own words**, not structured time fields: the tool hands the request to the dedicated reminder parser (`reminder-parsing.service.ts`, ADR-005). Live testing showed the chat model — especially the Groq fallback — filling time fields unreliably (e.g. turning "kal subah 9 baje" into 1,079 relative minutes). A per-message dedupe guard prevents repeated calls creating duplicates.
 - **Redaction is enforced at the provider boundary** (`providers/llm/redacting-provider.ts`, wrapping primary and fallback in `createLlmProvider`) rather than per feature, so no AI request can bypass it. Audio sent for transcription can't be redacted; its text output is redacted wherever it's used next.
@@ -144,6 +144,7 @@ Development happens on `zara-agent`; it is merged into `main` when complete.
 - **M6 recall:** no `sqlite-vec` — Prisma can't load SQLite extensions, so embeddings are float32 BLOBs searched by brute-force cosine in JS (fine at this scale: ~10–30 ms). Keywords use SQLite's built-in FTS5, created at runtime (outside Prisma migrations). The local model is `Xenova/multilingual-e5-small` via transformers.js/onnxruntime-node, downloaded on first use (not bundled). Indexing is incremental by content hash and runs in the background on each sync. People profiles are computed on demand, never stored. Notes are Markdown files in `Documents\Zara\Notes`; Zara can write them (`create_note`, undoable). PDF/Word text via `unpdf`/`mammoth`; scanned PDFs are out of scope.
 - **M7 actions:** "draft" means an in-app draft on the approval card (not a Gmail draft), so the scope is `gmail.send`, not `gmail.compose`/`modify`. "Voice approval" for own-calendar-only events is implemented as approval in chat (spoken or typed "yes"), via a tool that refuses email and anything that notifies others. A send whose 30 s window elapsed while the app was closed is never sent late — the card asks again. Undo of a cancelled event recreates it (Google can't un-delete). Writing-style learning = the user's notes + 2 samples of their sent mail + their last 3 edits to Zara's drafts, fetched by a tool only when drafting (not sent on every turn).
 - **M8 MCP:** only the filesystem server is bundled (runs on Electron's own Node); the other presets run through `npx`, so they need Node.js installed and download on first use — bundling every server would bloat the installer. Google Drive is built in (not MCP), through the existing Google connection. An approved tool call's result reaches Zara with the next (automatic) chat message rather than mid-turn. Risk tiers come from MCP tool annotations when present; unannotated tools are classified by name, and anything unclear is treated as "changes things" (always asks). The browser preset is limited to an allowlist of reading tools.
+- **M9 routines:** "action routines ask every run" is enforced by construction — a routine run is the normal agent without any approval tool (and without routine-editing tools), so anything that sends or changes something can only produce approval cards; the run's result arrives as an alert card that opens the report chat. Schedules: daily, weekdays, weekly (chosen days), monthly (day N), once; the model extracts, code computes run times. Missed runs catch up once. Behaviour learning remains postponed.
 
 ## Consequences
 

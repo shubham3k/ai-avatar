@@ -77,6 +77,12 @@ export interface ApiClient {
   /** ADR-006 (M7): approval cards and writing style. */
   listActions(): Promise<unknown>;
   approveAction(actionId: string, payload?: unknown, trustTool?: boolean): Promise<unknown>;
+  /** ADR-006 (M9): routines. */
+  listRoutines(): Promise<unknown>;
+  createRoutine(text: string): Promise<unknown>;
+  updateRoutine(routineId: string, patch: Record<string, unknown>): Promise<unknown>;
+  deleteRoutine(routineId: string): Promise<unknown>;
+  runRoutine(routineId: string): Promise<unknown>;
   /** ADR-006 (M8): connections. */
   listConnections(): Promise<unknown>;
   addConnection(input: Record<string, unknown>): Promise<unknown>;
@@ -265,6 +271,21 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
         body: JSON.stringify({ ...(payload === undefined ? {} : { payload }), ...(trustTool ? { trustTool: true } : {}) }),
       });
     },
+    listRoutines() {
+      return request("/routines");
+    },
+    createRoutine(text) {
+      return request("/routines", { method: "POST", body: JSON.stringify({ text }) });
+    },
+    updateRoutine(routineId, patch) {
+      return request(`/routines/${encodeURIComponent(routineId)}`, { method: "PATCH", body: JSON.stringify(patch) });
+    },
+    deleteRoutine(routineId) {
+      return request(`/routines/${encodeURIComponent(routineId)}`, { method: "DELETE" });
+    },
+    runRoutine(routineId) {
+      return request(`/routines/${encodeURIComponent(routineId)}/run`, { method: "POST", body: "{}" });
+    },
     listConnections() {
       return request("/connections");
     },
@@ -385,6 +406,8 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
       await request("/reminders/detect-signals", { method: "POST", body: "{}" });
       // M7: backup for the API's own 30 s send timer (best effort).
       await request("/actions/execute-due", { method: "POST", body: "{}" }).catch(() => undefined);
+      // M9: start routines that are due (they run in the background on the API side).
+      await request("/routines/run-due", { method: "POST", body: "{}" }).catch(() => undefined);
       return request("/integrations/google/calendar/detect-signals", {
         method: "POST",
         body: "{}",

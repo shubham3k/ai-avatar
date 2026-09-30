@@ -58,6 +58,12 @@ interface DesktopApiBridge {
   /** ADR-006 (M7). Optional so older test doubles still type-check. */
   actionsList?(): Promise<unknown>;
   actionsApprove?(actionId: string, payload?: unknown, trustTool?: boolean): Promise<unknown>;
+  /** ADR-006 (M9). Optional so older test doubles still type-check. */
+  routinesList?(): Promise<unknown>;
+  routinesCreate?(text: string): Promise<unknown>;
+  routinesUpdate?(routineId: string, patch: Record<string, unknown>): Promise<unknown>;
+  routinesDelete?(routineId: string): Promise<unknown>;
+  routinesRun?(routineId: string): Promise<unknown>;
   /** ADR-006 (M8). Optional so older test doubles still type-check. */
   connectionsList?(): Promise<unknown>;
   connectionsAdd?(input: Record<string, unknown>): Promise<unknown>;

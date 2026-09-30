@@ -722,3 +722,27 @@ export const updateConnectionRequestSchema = z.object({
 });
 export const toolPolicyRequestSchema = z.object({ enabled: z.boolean().optional(), trusted: z.boolean().optional() });
 export const toolPolicyParamsSchema = z.object({ id: z.string().min(1), tool: z.string().min(1).max(128) });
+
+// ADR-006 (M9): routines.
+export const routineDtoSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  instruction: z.string(),
+  schedule: z.record(z.unknown()),
+  scheduleText: z.string(),
+  takesAction: z.boolean(),
+  enabled: z.boolean(),
+  nextRunAt: z.string().nullable(),
+  lastRunAt: z.string().nullable(),
+  lastStatus: z.string().nullable(),
+});
+export const routinesResponseSchema = z.object({ routines: z.array(routineDtoSchema) });
+export const createRoutineRequestSchema = z.object({ text: z.string().trim().min(5).max(500) });
+export const updateRoutineRequestSchema = z.object({
+  enabled: z.boolean().optional(),
+  title: z.string().trim().min(1).max(80).optional(),
+  instruction: z.string().trim().min(3).max(1000).optional(),
+  // New timing in the user's own words, e.g. "every Friday at 5pm".
+  when: z.string().trim().min(3).max(200).optional(),
+});
+export const runDueResponseSchema = z.object({ started: z.number().int() });

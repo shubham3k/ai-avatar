@@ -22,6 +22,7 @@ import { proactiveRoutes } from "./routes/proactive.js";
 import { recallRoutes } from "./routes/recall.js";
 import { actionsRoutes } from "./routes/actions.js";
 import { connectionsRoutes } from "./routes/connections.js";
+import { routinesRoutes } from "./routes/routines.js";
 import { memoryRoutes } from "./routes/memory.js";
 import { activityRoutes } from "./routes/activity.js";
 import { ensureDemoUser } from "./demo/demo-scenario.js";
@@ -86,6 +87,7 @@ export function buildApp() {
   app.register(recallRoutes, { prefix: "/api/v1/recall" });
   app.register(actionsRoutes, { prefix: "/api/v1/actions" });
   app.register(connectionsRoutes, { prefix: "/api/v1/connections" });
+  app.register(routinesRoutes, { prefix: "/api/v1/routines" });
   app.register(memoryRoutes, { prefix: "/api/v1/memory" });
   app.register(activityRoutes, { prefix: "/api/v1/activity" });
 

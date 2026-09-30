@@ -1,7 +1,7 @@
 # Project Handoff Document
 
 **Last Updated:** September 29, 2026
-**Phase Completed:** Phases 1–4.7 (foundation → Google OAuth/Gmail/Calendar → daily context → SQLite, single-process desktop, onboarding, secrets, auto-migrations, Windows packaging), the Sept 18–28 feature stretch (background sync, tray, reminders, dock UI), and **Zara milestones M0–M8** (see below).
+**Phase Completed:** Phases 1–4.7 (foundation → Google OAuth/Gmail/Calendar → daily context → SQLite, single-process desktop, onboarding, secrets, auto-migrations, Windows packaging), the Sept 18–28 feature stretch (background sync, tray, reminders, dock UI), and **all Zara milestones M0–M9** (see below).
 
 **Current work — Zara, a local-first personal AI agent (design: `docs/decisions/ADR-006-zara-personal-agent.md`, read it first).** All Zara work is on git branch **`zara-agent`**, created from `main` after checkpoint `3a96d64`; merge back to `main` when the milestones are complete (user's instruction). Commits so far: M0 `d96f08a`, M1 `ca77fc2`, M2 `94e6181`, M3 `03b4efa`, M4 voice `30d7394`, M5 proactive `0e51869`, test-feedback fixes (memory across chats, Hindi/Hinglish transcription — see `git log`). Working tree clean at end of the Sept 29 session.
 
@@ -16,13 +16,25 @@
 | M6 recall (local index over email/chats/notes/`Documents\Zara`, notes, people memory) | ✅ in source, not yet user-tested |
 | M7 approved actions (Google re-consent, approval cards, email send with 30 s undo, calendar actions, writing style) | ✅ in source, not yet user-tested (needs a Google reconnect for the new permissions) |
 | M8 MCP connections (local files, Google Drive, web search, GitHub, Notion, Slack, read-only browser, custom; strict trust) | ✅ in source, not yet user-tested |
-| **M9 routines** | **next** — the last milestone; then the user tests everything together |
+| M9 routines (plain-language, Settings → Routines, action routines ask every run) | ✅ in source, not yet user-tested |
+| **Next** | the user tests everything together (dev mode), then merge `zara-agent` → `main` and, when asked, build the `.exe` |
 
-**How the user runs it right now:** dev mode, not the installer — `pnpm --filter @ai-agent/shared build`, `pnpm --filter @ai-agent/api build`, then `pnpm --filter @ai-agent/desktop electron:dev` (quit any installed copy first: both use port 4000). The last packaged `.exe` (Sept 28, 15:17) predates M1–M8; rebuild (`npm run package:win` in `apps/desktop`) **only when the user asks**.
+**How the user runs it right now:** dev mode, not the installer — `pnpm --filter @ai-agent/shared build`, `pnpm --filter @ai-agent/api build`, then `pnpm --filter @ai-agent/desktop electron:dev` (quit any installed copy first: both use port 4000). The last packaged `.exe` (Sept 28, 15:17) predates M1–M9; rebuild (`npm run package:win` in `apps/desktop`) **only when the user asks**.
 
 **Keys:** the OpenAI key goes in the app's **Settings → General → "AI provider (OpenAI)"** (encrypted in `%APPDATA%\@ai-agent\desktop\config.json`, shared by dev mode and the installed app). `apps/api/.env` has no OpenAI key (only Groq), so agent-side live tests run over Groq; a real OpenAI chat has **not** been verified yet. `.env.test` blanks all AI keys so tests never make billed calls.
 
 **Working rules with this user:** discuss before building new directions; never rebuild the `.exe` or commit unasked (commits on `zara-agent` per milestone are fine — the user approved that flow); after each milestone run typecheck + lint + all tests and a live check where possible.
+
+---
+
+## Addendum: Zara M9 — routines (September 30, 2026) — all milestones built
+
+On branch `zara-agent`. **With M9, every ADR-006 milestone (M0–M9) is in source.** The user asked to build them all and then test everything together; `zara-agent` has **not** been merged into `main` yet (waiting for that test).
+
+- **Routines** (`domain/routines/`, migration `zara_m9_routines`: `Routine`, `RoutineRun`): created in plain language — the model extracts title / instruction / frequency (daily, weekdays, weekly on given days, monthly on day N, once) / time / "takes action"; **code computes every run** (`nextRunAfter`, local time; monthly 31st → last day of short months; one-off times go through the proven reminder parser). Chat tools `create_routine` (the user's words), `list_routines`, `change_routine` (pause / resume / reschedule in words / delete); **Settings → Routines** tab (create, on/off, Run now, Edit instruction or timing, Delete). Created/deleted routines are in Activity with Undo.
+- **Running:** the desktop's 15 s delivery tick calls `POST /routines/run-due` (returns at once); due routines are claimed atomically (next run moved first — never twice; a PC that was off catches up with one run) and run in the background as Zara's normal agent in "routine mode" (prompt v10: the user isn't watching, write a short report, prepare cards for anything that sends/changes). In a run Zara **can't create routines or approve anything** (`create_routine`, `change_routine`, `approve_calendar_in_chat` aren't offered), so action routines ask on every run by construction. Each run is saved as a chat "Routine: <title> · <date>" and ends with an alert card — "<title> — ready" (medium), "— needs your approval" (high, when it prepared cards), or "— didn't finish" — whose **Read it** button opens the report in the chat. One-off routines switch off after running. Behaviour learning stays postponed (ADR-006 §10).
+- **Tests:** API 736/736, desktop 259/259, shared 10/10, typecheck + lint clean.
+- **Live check** (Groq, DB copy): "every Monday at 9, summarize unanswered emails" → Every Monday at 9:00 AM; "har weekday shaam 6 baje kal ki meetings batao" → Every weekday at 6:00 PM (instruction kept in Hinglish); "on the 1st of every month at 10am…" → Monthly on the 1st; "every friday at 5pm email my team a weekly update" → marked "asks every run". A forced run produced "Weekly unanswered emails — ready" with the report (~34 s on Groq's free tier). Groq sometimes starts the report with "Let me check…" and uses a markdown heading.
 
 ---
 

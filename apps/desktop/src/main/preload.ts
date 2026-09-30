@@ -57,6 +57,12 @@ export interface DesktopApiBridge {
   /** ADR-006 (M7): approval cards. Each resolves `{ ok, value | message }`. */
   actionsList(): Promise<unknown>;
   actionsApprove(actionId: string, payload?: unknown, trustTool?: boolean): Promise<unknown>;
+  /** ADR-006 (M9): routines. Each resolves `{ ok, value | message }`. */
+  routinesList(): Promise<unknown>;
+  routinesCreate(text: string): Promise<unknown>;
+  routinesUpdate(routineId: string, patch: Record<string, unknown>): Promise<unknown>;
+  routinesDelete(routineId: string): Promise<unknown>;
+  routinesRun(routineId: string): Promise<unknown>;
   /** ADR-006 (M8): connections. Each resolves `{ ok, value | message }`. */
   connectionsList(): Promise<unknown>;
   connectionsAdd(input: Record<string, unknown>): Promise<unknown>;
@@ -151,6 +157,11 @@ const bridge: DesktopApiBridge = {
   },
   actionsList: () => ipcRenderer.invoke("actions:list"),
   actionsApprove: (actionId, payload, trustTool) => ipcRenderer.invoke("actions:approve", actionId, payload, trustTool),
+  routinesList: () => ipcRenderer.invoke("routines:list"),
+  routinesCreate: (text) => ipcRenderer.invoke("routines:create", text),
+  routinesUpdate: (routineId, patch) => ipcRenderer.invoke("routines:update", routineId, patch),
+  routinesDelete: (routineId) => ipcRenderer.invoke("routines:delete", routineId),
+  routinesRun: (routineId) => ipcRenderer.invoke("routines:run", routineId),
   connectionsList: () => ipcRenderer.invoke("connections:list"),
   connectionsAdd: (input) => ipcRenderer.invoke("connections:add", input),
   connectionsUpdate: (connectionId, patch) => ipcRenderer.invoke("connections:update", connectionId, patch),

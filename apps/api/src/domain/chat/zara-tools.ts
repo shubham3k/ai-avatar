@@ -11,6 +11,8 @@ import { RECALL_SOURCE_TYPES } from "../recall/recall-store.js";
 import type { RecallService } from "../recall/recall.service.js";
 import type { ActionDto, ActionsService } from "../actions/actions.service.js";
 import { ACTION_TOOLS } from "./action-tools.js";
+import { ROUTINE_TOOLS } from "./routine-tools.js";
+import type { RoutinesService } from "../routines/routines.service.js";
 
 /**
  * Zara's tools (ADR-006, M2): a static, typed list — never a dynamic
@@ -50,6 +52,8 @@ export interface ToolContext {
   /** M7: shows a new approval card in the chat. */
   onAction?: (action: ActionDto) => void;
   conversationId?: string | null;
+  /** M9: the user's routines. */
+  routines?: RoutinesService;
 }
 
 export interface ZaraTool<Schema extends z.ZodTypeAny = z.ZodTypeAny> {
@@ -609,10 +613,11 @@ export const ZARA_TOOLS: readonly ZaraTool[] = [
   createNote,
   getPersonProfile,
   ...ACTION_TOOLS,
+  ...ROUTINE_TOOLS,
 ];
 
 /** Tools that write memory or files — not offered at all in incognito chats. */
-export const MEMORY_WRITE_TOOLS = new Set(["remember_fact", "update_fact", "forget_fact", "create_note"]);
+export const MEMORY_WRITE_TOOLS = new Set(["remember_fact", "update_fact", "forget_fact", "create_note", "create_routine"]);
 
 export function findTool(name: string): ZaraTool | undefined {
   return ZARA_TOOLS.find((tool) => tool.definition.name === name);

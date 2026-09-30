@@ -29,7 +29,11 @@ export type ActivityKind =
   | "calendar_cancelled"
   | "action_cancelled"
   // M8: a connection (MCP) tool was used.
-  | "mcp_call";
+  | "mcp_call"
+  // M9: routines.
+  | "routine_created"
+  | "routine_deleted"
+  | "routine_run";
 
 const noUndo = z.object({}).strict();
 
@@ -37,6 +41,9 @@ const undoSchemas = {
   email_sent: noUndo,
   action_cancelled: noUndo,
   mcp_call: noUndo,
+  routine_run: noUndo,
+  routine_created: z.object({ routineId: z.string() }),
+  routine_deleted: z.object({ title: z.string(), instruction: z.string(), schedule: z.string(), takesAction: z.boolean() }),
   calendar_created: z.object({ calendarId: z.string(), providerEventId: z.string() }),
   calendar_updated: z.object({
     calendarId: z.string(),
@@ -138,6 +145,7 @@ export function createActivityService(dependencies?: { prisma?: PrismaClient; ca
       case "email_sent":
       case "action_cancelled":
       case "mcp_call":
+      case "routine_run":
         throw conflictError("That can't be undone.");
       case "calendar_created":
         await undoCalendarCreate(prisma, userId, undoSchemas.calendar_created.parse(raw), calendarUndo);
@@ -148,6 +156,22 @@ export function createActivityService(dependencies?: { prisma?: PrismaClient; ca
       case "calendar_cancelled":
         await undoCalendarCancel(prisma, userId, undoSchemas.calendar_cancelled.parse(raw), calendarUndo);
         return;
+      case "routine_created": {
+        const { routineId } = undoSchemas.routine_created.parse(raw);
+        const deleted = await prisma.routine.deleteMany({ where: { id: routineId, userId } });
+        if (deleted.count === 0) throw conflictError("That routine is already gone.");
+        return;
+      }
+      case "routine_deleted": {
+        const data = undoSchemas.routine_deleted.parse(raw);
+        const { nextRunAfter, routineScheduleSchema } = await import("../routines/routine-schedule.js");
+        const schedule = routineScheduleSchema.parse(JSON.parse(data.schedule));
+        const nextRunAt = nextRunAfter(schedule, new Date());
+        await prisma.routine.create({
+          data: { userId, title: data.title, instruction: data.instruction, schedule: data.schedule, takesAction: data.takesAction, nextRunAt, enabled: nextRunAt !== null },
+        });
+        return;
+      }
       case "note_created": {
         const { path } = undoSchemas.note_created.parse(raw);
         if (!(await deleteCreatedNote(path))) throw conflictError("That note is already gone.");
