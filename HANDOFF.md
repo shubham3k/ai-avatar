@@ -1,7 +1,7 @@
 # Project Handoff Document
 
 **Last Updated:** September 29, 2026
-**Phase Completed:** Phases 1–4.7 (foundation → Google OAuth/Gmail/Calendar → daily context → SQLite, single-process desktop, onboarding, secrets, auto-migrations, Windows packaging), the Sept 18–28 feature stretch (background sync, tray, reminders, dock UI), and **Zara milestones M0–M6** (see below).
+**Phase Completed:** Phases 1–4.7 (foundation → Google OAuth/Gmail/Calendar → daily context → SQLite, single-process desktop, onboarding, secrets, auto-migrations, Windows packaging), the Sept 18–28 feature stretch (background sync, tray, reminders, dock UI), and **Zara milestones M0–M7** (see below).
 
 **Current work — Zara, a local-first personal AI agent (design: `docs/decisions/ADR-006-zara-personal-agent.md`, read it first).** All Zara work is on git branch **`zara-agent`**, created from `main` after checkpoint `3a96d64`; merge back to `main` when the milestones are complete (user's instruction). Commits so far: M0 `d96f08a`, M1 `ca77fc2`, M2 `94e6181`, M3 `03b4efa`, M4 voice `30d7394`, M5 proactive `0e51869`, test-feedback fixes (memory across chats, Hindi/Hinglish transcription — see `git log`). Working tree clean at end of the Sept 29 session.
 
@@ -14,14 +14,30 @@
 | M4 voice (hotkey Ctrl+Shift+Space, spoken replies, voice picker, hands-free, interrupt, Hindi/Hinglish) | ✅ in source, not yet user-tested (the real OpenAI voice needs the user's key) |
 | M5 proactive (briefings, pre-meeting summary, follow-ups, promises, held pop-ups, wrap-up) | ✅ in source, not yet user-tested (real sent-mail sync needs the user's Google account) |
 | M6 recall (local index over email/chats/notes/`Documents\Zara`, notes, people memory) | ✅ in source, not yet user-tested |
-| **M7 approved actions (Google re-consent, approval cards, email send with 30 s undo, calendar actions, writing style)** | **next** |
-| M8 MCP · M9 routines | planned (ADR-006) — the user wants M7–M9 built, then tests everything together |
+| M7 approved actions (Google re-consent, approval cards, email send with 30 s undo, calendar actions, writing style) | ✅ in source, not yet user-tested (needs a Google reconnect for the new permissions) |
+| **M8 MCP connections** | **next** |
+| M9 routines | planned (ADR-006) — the user wants M8–M9 built, then tests everything together |
 
-**How the user runs it right now:** dev mode, not the installer — `pnpm --filter @ai-agent/shared build`, `pnpm --filter @ai-agent/api build`, then `pnpm --filter @ai-agent/desktop electron:dev` (quit any installed copy first: both use port 4000). The last packaged `.exe` (Sept 28, 15:17) predates M1–M6; rebuild (`npm run package:win` in `apps/desktop`) **only when the user asks**.
+**How the user runs it right now:** dev mode, not the installer — `pnpm --filter @ai-agent/shared build`, `pnpm --filter @ai-agent/api build`, then `pnpm --filter @ai-agent/desktop electron:dev` (quit any installed copy first: both use port 4000). The last packaged `.exe` (Sept 28, 15:17) predates M1–M7; rebuild (`npm run package:win` in `apps/desktop`) **only when the user asks**.
 
 **Keys:** the OpenAI key goes in the app's **Settings → General → "AI provider (OpenAI)"** (encrypted in `%APPDATA%\@ai-agent\desktop\config.json`, shared by dev mode and the installed app). `apps/api/.env` has no OpenAI key (only Groq), so agent-side live tests run over Groq; a real OpenAI chat has **not** been verified yet. `.env.test` blanks all AI keys so tests never make billed calls.
 
 **Working rules with this user:** discuss before building new directions; never rebuild the `.exe` or commit unasked (commits on `zara-agent` per milestone are fine — the user approved that flow); after each milestone run typecheck + lint + all tests and a live check where possible.
+
+---
+
+## Addendum: Zara M7 — actions with approval (September 30, 2026)
+
+On branch `zara-agent`.
+
+- **Google permissions:** sign-in now also asks for `gmail.send` (send only — no mailbox changes), `calendar.events` and `drive.readonly` (for M8). `grantedCapabilities(scopes)` reports what the stored grant covers; an older connection keeps working read-only until the user clicks **Settings → Actions → Reconnect Google to allow it**. `AGENTS.md`'s Phase-1 "read-only scopes" rule is updated accordingly; the OAuth test now asserts send-only / events-only / read-only-Drive and never modify/full-account scopes.
+- **Approval layer** (`domain/actions/`, migration `zara_m7_actions`: `PendingAction`, `ActionSettings`, `DraftEdit`): Zara's tools can only **propose** (`draft_email`, `propose_calendar_event` / `_change` / `_cancel` — tier `external`); each creates a card streamed into the chat (`{type:"action"}` SSE event) and the tool result tells the model nothing has happened yet. Payloads (Zod, per kind) are validated on propose, on every edit, and again before execution. **Email:** Approve is only accepted from the user's click (IPC → `POST /actions/:id/approve`, `via: "click"`); it then waits **30 s** (`status: sending`, countdown + **Undo** on the card) and is sent exactly once (claimed atomically; an in-process timer plus the desktop's 15 s tick calling `/actions/execute-due` as backup). A send whose window passed while the app was closed goes back to "approve again", never out late. Replies thread properly (In-Reply-To/References + threadId); subjects are RFC 2047-encoded (Hindi); headers can't be injected. **Calendar:** own-only changes (nobody notified) may be approved in chat (`approve_calendar_in_chat`, refused for email and for anything that notifies others); attendees get Google's own emails (`sendUpdates: all`) only when there are attendees. Times come from the user's words through the proven reminder parser. The card shows the exact email / before → after / who gets notified, **⚠ first-time recipients**, Edit (To/Cc/Subject/Body or Title/Start/End), Cancel.
+- **Activity + Undo:** `email_sent` (no undo after sending — the 30 s window is the undo), `calendar_created` (undo deletes it), `calendar_updated` (undo restores the before-snapshot), `calendar_cancelled` (undo recreates it; attendees re-invited), `action_cancelled` (every cancel/undo). The local calendar table is updated after each change.
+- **Writing style:** Settings → Actions has the user's style notes; `get_writing_style` (called before drafting) returns them plus 2 short samples of the user's sent mail and their last 3 edits to Zara's drafts (recorded when they change a draft's text before sending).
+- **Desktop:** `ActionCard.tsx` + `use-action-cards.ts` (cards persist in the DB, refreshed when the chat opens; the panel never auto-hides while a card waits); **Settings → Actions** tab (permission status + reconnect, writing style). Prompt v8.
+- **Tests:** API 718/718, desktop 248/248, typecheck + lint clean. Cover MIME building/injection, scopes, 30 s window, exactly-once send, Undo, chat-approval refusal for email, first-time recipients, edits → DraftEdit, restart recovery, permission errors, calendar create/update/cancel with notify rules and Undo, and that the agent only creates a card.
+- **Live check** (Groq, DB copy, fake Gmail/Calendar that can't send): "Email priya@example.test that the launch deck is ready…" → `get_writing_style` then a correct draft card with Priya flagged as a first-time recipient — **0 emails sent**; "kal dopahar 3 baje 1 ghante ke liye Focus time calendar mein daal do" → a card for Thu 1 Oct 3:00–4:00 PM, approvable in chat, reply in Hinglish. **Groq's free tier took 38–72 s per reply** here (more tools = bigger prompts → rate limits); OpenAI should be far faster.
+- **Needs the user:** reconnect Google to grant the new permissions (if the OAuth app is in Google's "testing" mode, the user must be a test user), then a real send / calendar change.
 
 ---
 

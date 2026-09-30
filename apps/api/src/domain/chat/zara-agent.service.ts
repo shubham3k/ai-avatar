@@ -19,6 +19,7 @@ import { createActivityService, type ActivityService } from "../activity/activit
 import { createMemoryService, MEMORY_CONTEXT_LIMIT, type MemoryService } from "../memory/memory.service.js";
 import { createPeopleService, type PeopleService } from "../recall/people.service.js";
 import { getRecallService, type RecallService } from "../recall/recall.service.js";
+import { getActionsService, type ActionDto, type ActionsService } from "../actions/actions.service.js";
 import { isExplicitRememberRequest } from "./remember-intent.js";
 import { buildZaraSystemPrompt } from "./zara-prompt.js";
 import { findTool, MEMORY_WRITE_TOOLS, ZARA_TOOLS, type ToolContext } from "./zara-tools.js";
@@ -29,6 +30,8 @@ export type ChatEvent =
   | { type: "status"; text: string }
   | { type: "delta"; text: string }
   | { type: "done"; message: ChatMessageDto }
+  /** M7: an approval card Zara just created (or updated). */
+  | { type: "action"; action: ActionDto }
   | { type: "error"; message: string };
 
 export interface ChatMessageDto {
@@ -106,11 +109,13 @@ export function createZaraAgentService(dependencies?: {
   activity?: ActivityService;
   recall?: RecallService;
   people?: PeopleService;
+  actions?: ActionsService;
 }) {
   const prisma = dependencies?.prisma ?? defaultPrisma;
   // Shared per process: one search model and one indexing pass at a time.
   const recall = dependencies?.recall ?? getRecallService();
   const people = dependencies?.people ?? createPeopleService({ prisma });
+  const actions = dependencies?.actions ?? getActionsService();
   const memory = dependencies?.memory ?? createMemoryService({ prisma });
   const activity = dependencies?.activity ?? createActivityService({ prisma });
   const provider = dependencies?.provider ?? createDefaultLlmProvider();
@@ -174,6 +179,9 @@ export function createZaraAgentService(dependencies?: {
         incognito,
         recall,
         people,
+        actions,
+        onAction: (action) => emit({ type: "action", action }),
+        conversationId: conversationId ?? null,
         // Logged with whichever provider was answering when Zara acted.
         recordActivity: (entry) => activity.record(userId, { ...entry, provider: answeredBy }),
       };

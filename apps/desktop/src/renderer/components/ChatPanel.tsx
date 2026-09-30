@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { formatRelativeTime } from "../lib/relative-time";
 import type { ZaraChat } from "../state/use-zara-chat";
+import type { ActionCards } from "../state/use-action-cards";
+import { ActionCard } from "./ActionCard";
 
 export interface ChatPanelProps {
   chat: ZaraChat;
@@ -9,6 +11,8 @@ export interface ChatPanelProps {
   autoHideSeconds: number;
   /** M4: bumped by the global hotkey — puts the cursor back in the message box. */
   focusSignal?: number;
+  /** M7: approval cards (email, calendar) — shown under the conversation. */
+  cards?: ActionCards;
 }
 
 /**
@@ -17,7 +21,7 @@ export interface ChatPanelProps {
  * autoHideSeconds without activity — never while Zara is working, speaking,
  * or the mic is open. Typing interrupts her speech (M4).
  */
-export function ChatPanel({ chat, onClose, autoHideSeconds, focusSignal = 0 }: ChatPanelProps) {
+export function ChatPanel({ chat, onClose, autoHideSeconds, focusSignal = 0, cards }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const [activityTick, setActivityTick] = useState(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -30,7 +34,10 @@ export function ChatPanel({ chat, onClose, autoHideSeconds, focusSignal = 0 }: C
   const bump = () => setActivityTick((tick) => tick + 1);
 
   const lastMessage = chat.messages.at(-1);
-  const contentSignature = `${chat.messages.length}:${lastMessage?.content.length ?? 0}:${chat.status ?? ""}`;
+  const cardSignature = cards?.cards.map((card) => `${card.id}:${card.status}`).join(",") ?? "";
+  const contentSignature = `${chat.messages.length}:${lastMessage?.content.length ?? 0}:${chat.status ?? ""}:${cardSignature}`;
+  // A card waiting for approval keeps the panel open.
+  const cardsWaiting = cards?.cards.some((card) => card.status === "pending" || card.status === "sending") ?? false;
 
   // Keep the newest message in view as replies stream in.
   useEffect(() => {
@@ -41,10 +48,10 @@ export function ChatPanel({ chat, onClose, autoHideSeconds, focusSignal = 0 }: C
   // Auto-hide after a quiet period; any activity (typing, pointer, new
   // text, tool status) restarts the countdown.
   useEffect(() => {
-    if (autoHideSeconds <= 0 || chat.busy) return;
+    if (autoHideSeconds <= 0 || chat.busy || cardsWaiting) return;
     const timer = setTimeout(onClose, autoHideSeconds * 1000);
     return () => clearTimeout(timer);
-  }, [autoHideSeconds, chat.busy, onClose, activityTick, contentSignature, draft, chat.view]);
+  }, [autoHideSeconds, chat.busy, cardsWaiting, onClose, activityTick, contentSignature, draft, chat.view]);
 
   const submit = () => {
     const text = draft.trim();
@@ -146,6 +153,16 @@ export function ChatPanel({ chat, onClose, autoHideSeconds, focusSignal = 0 }: C
                   <div className="chat-backup-note">answered by backup (Groq)</div>
                 )}
               </div>
+            ))}
+            {cards?.cards.map((card) => (
+              <ActionCard
+                key={card.id}
+                card={card}
+                now={cards.now}
+                onApprove={cards.approve}
+                onCancel={cards.cancel}
+                onDismiss={cards.dismiss}
+              />
             ))}
           </div>
           {chat.recording && <div className="chat-status chat-listening">Listening… click 🎤 again when you're done.</div>}

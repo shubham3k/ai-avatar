@@ -57,6 +57,11 @@ const bridge = {
     ipcRenderer.on("zara:hotkey", listener);
     return () => ipcRenderer.removeListener("zara:hotkey", listener);
   },
+  actionsList: () => ipcRenderer.invoke("actions:list"),
+  actionsApprove: (actionId, payload) => ipcRenderer.invoke("actions:approve", actionId, payload),
+  actionsCancel: (actionId) => ipcRenderer.invoke("actions:cancel", actionId),
+  actionsGetSettings: () => ipcRenderer.invoke("actions:get-settings"),
+  actionsUpdateSettings: (writingStyle) => ipcRenderer.invoke("actions:update-settings", writingStyle),
   recallGetSettings: () => ipcRenderer.invoke("recall:get-settings"),
   recallUpdateSettings: (patch) => ipcRenderer.invoke("recall:update-settings", patch),
   recallStatus: () => ipcRenderer.invoke("recall:status"),

@@ -4,6 +4,7 @@ import {
   isOpenAiModelChoice,
   OPENAI_MODEL_CHOICES,
   parseChatHistory,
+  parseApprovePayload,
   parseProactivePatch,
   parseRecallPatch,
   parseSpeakRequest,
@@ -144,5 +145,15 @@ describe("parseRecallPatch (M6)", () => {
     expect(parseRecallPatch({ emailHistoryDays: 45 })).toBeNull();
     expect(parseRecallPatch({ backfillPageToken: "x" })).toBeNull();
     expect(parseRecallPatch({})).toBeNull();
+  });
+});
+
+describe("parseApprovePayload (M7)", () => {
+  it("accepts no edits or a plain object; rejects anything else", () => {
+    expect(parseApprovePayload(undefined)).toBeUndefined();
+    expect(parseApprovePayload({ body: "hi" })).toEqual({ body: "hi" });
+    expect(typeof parseApprovePayload("send it")).toBe("symbol");
+    expect(typeof parseApprovePayload([1])).toBe("symbol");
+    expect(typeof parseApprovePayload({ body: "x".repeat(40_000) })).toBe("symbol");
   });
 });

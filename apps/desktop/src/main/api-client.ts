@@ -74,6 +74,12 @@ export interface ApiClient {
     durationSeconds?: number,
     script?: "latin" | "devanagari",
   ): Promise<unknown>;
+  /** ADR-006 (M7): approval cards and writing style. */
+  listActions(): Promise<unknown>;
+  approveAction(actionId: string, payload?: unknown): Promise<unknown>;
+  cancelAction(actionId: string): Promise<unknown>;
+  actionSettings(): Promise<unknown>;
+  updateActionSettings(writingStyle: string): Promise<unknown>;
   /** ADR-006 (M6): recall — local search index settings, status, background indexing. */
   recallSettings(): Promise<unknown>;
   updateRecallSettings(patch: Record<string, unknown>): Promise<unknown>;
@@ -241,6 +247,24 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
         }),
       });
     },
+    listActions() {
+      return request("/actions");
+    },
+    approveAction(actionId, payload) {
+      return request(`/actions/${encodeURIComponent(actionId)}/approve`, {
+        method: "POST",
+        body: JSON.stringify(payload === undefined ? {} : { payload }),
+      });
+    },
+    cancelAction(actionId) {
+      return request(`/actions/${encodeURIComponent(actionId)}/cancel`, { method: "POST", body: "{}" });
+    },
+    actionSettings() {
+      return request("/actions/settings");
+    },
+    updateActionSettings(writingStyle) {
+      return request("/actions/settings", { method: "PATCH", body: JSON.stringify({ writingStyle }) });
+    },
     recallSettings() {
       return request("/recall/settings");
     },
@@ -329,6 +353,8 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
     },
     async checkDue() {
       await request("/reminders/detect-signals", { method: "POST", body: "{}" });
+      // M7: backup for the API's own 30 s send timer (best effort).
+      await request("/actions/execute-due", { method: "POST", body: "{}" }).catch(() => undefined);
       return request("/integrations/google/calendar/detect-signals", {
         method: "POST",
         body: "{}",

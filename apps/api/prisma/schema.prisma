@@ -356,3 +356,46 @@ model RecallSettings {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 }
+
+// ADR-006 M7: an external action Zara proposed (email send, calendar
+// create/update/cancel). Nothing leaves the PC until the user approves the
+// card; email then waits 30 s ("Sending… [Undo]") before it is sent.
+model PendingAction {
+  id             String    @id @default(cuid())
+  userId         String
+  kind           String // email_send | calendar_create | calendar_update | calendar_cancel
+  status         String    @default("pending") // pending | sending | done | cancelled | failed
+  payload        String // JSON, validated per kind
+  original       String? // payload as Zara first wrote it — to learn from the user's edits
+  before         String? // calendar update/cancel: the event before the change
+  newRecipients  String    @default("[]")
+  notifies       String    @default("[]") // who gets an email because of this
+  conversationId String?
+  executeAt      DateTime?
+  executedAt     DateTime?
+  resultId       String?
+  error          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId, status])
+}
+
+// M7 writing style: the user's own guide plus edits they made to Zara's drafts.
+model ActionSettings {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  writingStyle String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model DraftEdit {
+  id        String   @id @default(cuid())
+  userId    String
+  before    String
+  after     String
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}

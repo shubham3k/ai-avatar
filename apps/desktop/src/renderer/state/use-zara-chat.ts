@@ -33,7 +33,8 @@ type ChatEvent =
   | { type: "status"; text: string }
   | { type: "delta"; text: string }
   | { type: "done"; message: ChatMessage }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "action"; action: unknown };
 
 function isChatEvent(value: unknown): value is ChatEvent {
   return !!value && typeof value === "object" && typeof (value as { type?: unknown }).type === "string";
@@ -110,7 +111,10 @@ export interface ZaraChat {
  * anything the user does next interrupts her. The microphone and speech
  * are released on unmount.
  */
-export function useZaraChat(): ZaraChat {
+export function useZaraChat(options?: { onAction?: (action: unknown) => void }): ZaraChat {
+  // M7: approval cards Zara creates while replying.
+  const onActionRef = useRef(options?.onAction);
+  onActionRef.current = options?.onAction;
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<string | null>(null);
@@ -216,6 +220,8 @@ export function useZaraChat(): ZaraChat {
         setMessages((prev) => prev.map((m) => (m.id === STREAMING_ID ? { ...raw.message, streaming: false } : m)));
       } else if (raw.type === "error") {
         setError(raw.message);
+      } else if (raw.type === "action") {
+        onActionRef.current?.(raw.action);
       }
     };
 

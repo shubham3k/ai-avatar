@@ -54,6 +54,12 @@ export interface DesktopApiBridge {
   saveChatHotkey(accelerator: string): Promise<unknown>;
   /** Fires when the global Zara shortcut is pressed; returns an unsubscribe function. */
   onHotkey(callback: () => void): () => void;
+  /** ADR-006 (M7): approval cards. Each resolves `{ ok, value | message }`. */
+  actionsList(): Promise<unknown>;
+  actionsApprove(actionId: string, payload?: unknown): Promise<unknown>;
+  actionsCancel(actionId: string): Promise<unknown>;
+  actionsGetSettings(): Promise<unknown>;
+  actionsUpdateSettings(writingStyle: string): Promise<unknown>;
   /** ADR-006 (M6): recall. Each resolves `{ ok, value | message }`. */
   recallGetSettings(): Promise<unknown>;
   recallUpdateSettings(patch: Record<string, unknown>): Promise<unknown>;
@@ -134,6 +140,11 @@ const bridge: DesktopApiBridge = {
     ipcRenderer.on("zara:hotkey", listener);
     return () => ipcRenderer.removeListener("zara:hotkey", listener);
   },
+  actionsList: () => ipcRenderer.invoke("actions:list"),
+  actionsApprove: (actionId, payload) => ipcRenderer.invoke("actions:approve", actionId, payload),
+  actionsCancel: (actionId) => ipcRenderer.invoke("actions:cancel", actionId),
+  actionsGetSettings: () => ipcRenderer.invoke("actions:get-settings"),
+  actionsUpdateSettings: (writingStyle) => ipcRenderer.invoke("actions:update-settings", writingStyle),
   recallGetSettings: () => ipcRenderer.invoke("recall:get-settings"),
   recallUpdateSettings: (patch) => ipcRenderer.invoke("recall:update-settings", patch),
   recallStatus: () => ipcRenderer.invoke("recall:status"),

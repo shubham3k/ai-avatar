@@ -50,6 +50,12 @@ interface DesktopApiBridge {
   chatSpeak?(text: string, voice: string): Promise<unknown>;
   saveChatHotkey?(accelerator: string): Promise<unknown>;
   onHotkey?(callback: () => void): () => void;
+  /** ADR-006 (M7). Optional so older test doubles still type-check. */
+  actionsList?(): Promise<unknown>;
+  actionsApprove?(actionId: string, payload?: unknown): Promise<unknown>;
+  actionsCancel?(actionId: string): Promise<unknown>;
+  actionsGetSettings?(): Promise<unknown>;
+  actionsUpdateSettings?(writingStyle: string): Promise<unknown>;
   /** ADR-006 (M6). Optional so older test doubles still type-check. */
   recallGetSettings?(): Promise<unknown>;
   recallUpdateSettings?(patch: Record<string, unknown>): Promise<unknown>;

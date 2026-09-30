@@ -9,20 +9,23 @@ import { writeNote } from "../recall/notes.js";
 import type { PeopleService } from "../recall/people.service.js";
 import { RECALL_SOURCE_TYPES } from "../recall/recall-store.js";
 import type { RecallService } from "../recall/recall.service.js";
+import type { ActionDto, ActionsService } from "../actions/actions.service.js";
+import { ACTION_TOOLS } from "./action-tools.js";
 
 /**
  * Zara's tools (ADR-006, M2): a static, typed list — never a dynamic
  * registry. Every argument object is Zod-validated before the tool runs;
  * the model only ever picks from this list, the app executes. Tiers:
  * "read" tools only read local data; "local_write" tools change only local
- * data (reminders) and are undoable. External actions (email, calendar
- * writes) don't exist yet — they arrive in M7 behind approval cards.
+ * data (reminders, memory, notes) and are undoable; "external" tools (M7:
+ * email, calendar) can only *propose* — they create an approval card, and
+ * nothing leaves the PC until the user approves it.
  *
  * Results are small and content-minimal (local-first): e.g. email snippets,
  * never full bodies.
  */
 
-export type ToolTier = "read" | "local_write";
+export type ToolTier = "read" | "local_write" | "external";
 
 export interface ToolContext {
   prisma: PrismaClient;
@@ -42,6 +45,11 @@ export interface ToolContext {
   recall?: RecallService;
   /** M6: people profiles (experimental). */
   people?: PeopleService;
+  /** M7: the approval layer — tools can only propose; the user approves on a card. */
+  actions?: ActionsService;
+  /** M7: shows a new approval card in the chat. */
+  onAction?: (action: ActionDto) => void;
+  conversationId?: string | null;
 }
 
 export interface ZaraTool<Schema extends z.ZodTypeAny = z.ZodTypeAny> {
@@ -119,6 +127,7 @@ const getCalendarEvents = defineTool({
     return {
       range: { from: formatLocalDateTime(start), to: formatLocalDateTime(end) },
       events: events.map((event) => ({
+        id: event.id,
         title: event.title,
         start: event.isAllDay ? "all day" : formatLocalDateTime(event.startAt),
         end: event.isAllDay ? null : formatLocalDateTime(event.endAt),
@@ -177,6 +186,7 @@ const searchEmails = defineTool({
     });
     return {
       emails: emails.map((email) => ({
+        id: email.id,
         from: email.fromName ? `${email.fromName} <${email.fromEmail}>` : email.fromEmail,
         subject: email.subject,
         received: formatLocalDateTime(email.receivedAt),
@@ -598,6 +608,7 @@ export const ZARA_TOOLS: readonly ZaraTool[] = [
   readRecallItem,
   createNote,
   getPersonProfile,
+  ...ACTION_TOOLS,
 ];
 
 /** Tools that write memory or files — not offered at all in incognito chats. */

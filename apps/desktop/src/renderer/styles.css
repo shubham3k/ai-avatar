@@ -1050,3 +1050,110 @@ body,
   gap: 6px;
   margin-left: 22px;
 }
+
+/* ADR-006 M7: approval cards in the chat. */
+.action-card {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 12.5px;
+  border: 1px solid #cbd5e1;
+}
+
+.action-card.action-sending {
+  border-color: #f59e0b;
+}
+
+.action-card.action-done {
+  border-color: #22c55e;
+  opacity: 0.85;
+}
+
+.action-card.action-cancelled,
+.action-card.action-failed {
+  opacity: 0.8;
+}
+
+.action-card-heading {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.action-card-state {
+  font-weight: 500;
+  color: #64748b;
+  font-size: 11.5px;
+}
+
+.action-card-body > div {
+  margin: 2px 0;
+}
+
+.action-card-text {
+  margin-top: 6px !important;
+  padding: 6px 8px;
+  background: #ffffff;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.action-card-before {
+  color: #64748b;
+  text-decoration: line-through;
+}
+
+.action-card-warning {
+  margin-top: 6px;
+  color: #b45309;
+  font-weight: 600;
+}
+
+.action-card-note {
+  margin-top: 6px;
+  color: #475569;
+  font-size: 11.5px;
+}
+
+.action-card-error {
+  margin-top: 6px;
+  color: #b91c1c;
+}
+
+.action-card-edit label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 3px 0;
+  font-size: 11.5px;
+  color: #475569;
+}
+
+.action-card-edit input,
+.action-card-edit textarea {
+  flex: 1;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.action-card-buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.action-card-buttons .button {
+  padding: 5px 10px;
+  font-size: 12px;
+}

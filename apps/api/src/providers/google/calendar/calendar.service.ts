@@ -45,7 +45,7 @@ function normalizeOrganizer(
   };
 }
 
-function normalizeEvent(
+export function normalizeEvent(
   event: calendar_v3.Schema$Event,
   calendarId: string,
 ): NormalizedCalendarEvent {

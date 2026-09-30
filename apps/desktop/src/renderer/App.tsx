@@ -8,6 +8,7 @@ import type { InterventionActionSpec } from "./lib/intervention-actions";
 import { getChatAutoHideSeconds } from "./lib/preferences";
 import { useInterventionPolling } from "./state/use-intervention-polling";
 import { useZaraChat } from "./state/use-zara-chat";
+import { useActionCards } from "./state/use-action-cards";
 import { useReportContentSize } from "./state/use-report-content-size";
 import { useSetupStatus } from "./state/use-setup-status";
 import { holdLabel, useHoldState } from "./state/use-hold-state";
@@ -44,13 +45,19 @@ export default function App() {
   const [checkError, setCheckError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const chat = useZaraChat();
+  // M7: approval cards live beside the chat; Zara's replies add them as they're created.
+  const actionCards = useActionCards();
+  const chat = useZaraChat({ onAction: actionCards.upsert });
+  const refreshCards = actionCards.refresh;
   const [chatOpen, setChatOpen] = useState(false);
   // M4: bumped by the global hotkey so the chat box gets the cursor.
   const [chatFocusSignal, setChatFocusSignal] = useState(0);
   // M5: pop-ups held while presenting / full-screen / on a call / quiet hours.
   const hold = useHoldState();
   const [briefingOpen, setBriefingOpen] = useState(false);
+  useEffect(() => {
+    if (chatOpen) void refreshCards();
+  }, [chatOpen, refreshCards]);
 
   // A brief, self-clearing confirmation after an action succeeds — kept
   // independent of the interventions list state so it still shows even
@@ -269,6 +276,7 @@ export default function App() {
               : getChatAutoHideSeconds()
           }
           focusSignal={chatFocusSignal}
+          cards={actionCards}
         />
       )}
       <Dock

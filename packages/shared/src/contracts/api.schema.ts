@@ -635,3 +635,31 @@ export const recallSearchResponseSchema = z.object({
     }),
   ),
 });
+
+// ADR-006 (M7): actions with approval.
+export const actionDtoSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["email_send", "calendar_create", "calendar_update", "calendar_cancel"]),
+  status: z.enum(["pending", "sending", "done", "cancelled", "failed"]),
+  payload: z.unknown(),
+  before: z.unknown().nullable(),
+  newRecipients: z.array(z.string()),
+  notifies: z.array(z.string()),
+  executeAt: z.string().nullable(),
+  error: z.string().nullable(),
+  createdAt: z.string(),
+  voiceApprovable: z.boolean(),
+});
+export const actionsResponseSchema = z.object({ actions: z.array(actionDtoSchema) });
+export const approveActionRequestSchema = z.object({ payload: z.unknown().optional() });
+export const actionSettingsSchema = z.object({
+  writingStyle: z.string(),
+  permissions: z.object({
+    connected: z.boolean(),
+    sendEmail: z.boolean(),
+    editCalendar: z.boolean(),
+    readDrive: z.boolean(),
+  }),
+});
+export const updateActionSettingsSchema = z.object({ writingStyle: z.string().max(4000) });
+export const executeDueResponseSchema = z.object({ executed: z.number().int() });

@@ -3,6 +3,12 @@ import { z } from "zod";
 import { conflictError, notFoundError } from "../../lib/errors.js";
 import { prisma as defaultPrisma } from "../../lib/prisma.js";
 import { deleteCreatedNote } from "../recall/notes.js";
+import {
+  undoCalendarCancel,
+  undoCalendarCreate,
+  undoCalendarUpdate,
+  type CalendarUndoDependencies,
+} from "../actions/calendar-undo.js";
 
 /**
  * Activity log (ADR-006 §4): everything Zara did, with the data needed to
@@ -15,9 +21,37 @@ export type ActivityKind =
   | "memory_saved"
   | "memory_updated"
   | "memory_deleted"
-  | "note_created";
+  | "note_created"
+  // M7: external actions the user approved (email can't be unsent — its undo is the 30 s window on the card).
+  | "email_sent"
+  | "calendar_created"
+  | "calendar_updated"
+  | "calendar_cancelled"
+  | "action_cancelled";
+
+const noUndo = z.object({}).strict();
 
 const undoSchemas = {
+  email_sent: noUndo,
+  action_cancelled: noUndo,
+  calendar_created: z.object({ calendarId: z.string(), providerEventId: z.string() }),
+  calendar_updated: z.object({
+    calendarId: z.string(),
+    providerEventId: z.string(),
+    title: z.string(),
+    start: z.string(),
+    end: z.string(),
+    location: z.string().nullable(),
+    notify: z.boolean(),
+  }),
+  calendar_cancelled: z.object({
+    title: z.string(),
+    start: z.string(),
+    end: z.string(),
+    location: z.string().nullable(),
+    description: z.string().nullable(),
+    attendees: z.array(z.string()),
+  }),
   note_created: z.object({ path: z.string() }),
   reminder_created: z.object({ reminderId: z.string() }),
   reminder_deleted: z.object({ text: z.string(), dueAt: z.string(), remindAt: z.string().nullable() }),
@@ -57,8 +91,9 @@ function toDto(entry: ActivityEntry): ActivityEntryDto {
   };
 }
 
-export function createActivityService(dependencies?: { prisma?: PrismaClient }) {
+export function createActivityService(dependencies?: { prisma?: PrismaClient; calendarUndo?: CalendarUndoDependencies }) {
   const prisma = dependencies?.prisma ?? defaultPrisma;
+  const calendarUndo = dependencies?.calendarUndo ?? {};
 
   async function applyUndo(userId: string, kind: ActivityKind, raw: unknown): Promise<void> {
     switch (kind) {
@@ -97,6 +132,18 @@ export function createActivityService(dependencies?: { prisma?: PrismaClient }) 
         await prisma.memoryFact.create({ data: { userId, content, category } });
         return;
       }
+      case "email_sent":
+      case "action_cancelled":
+        throw conflictError("That can't be undone.");
+      case "calendar_created":
+        await undoCalendarCreate(prisma, userId, undoSchemas.calendar_created.parse(raw), calendarUndo);
+        return;
+      case "calendar_updated":
+        await undoCalendarUpdate(prisma, userId, undoSchemas.calendar_updated.parse(raw), calendarUndo);
+        return;
+      case "calendar_cancelled":
+        await undoCalendarCancel(prisma, userId, undoSchemas.calendar_cancelled.parse(raw), calendarUndo);
+        return;
       case "note_created": {
         const { path } = undoSchemas.note_created.parse(raw);
         if (!(await deleteCreatedNote(path))) throw conflictError("That note is already gone.");

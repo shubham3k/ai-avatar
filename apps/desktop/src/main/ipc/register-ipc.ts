@@ -74,6 +74,19 @@ const PROACTIVE_FIELDS: Record<string, "boolean" | "number" | "string"> = {
   quietHoursEnd: "string",
 };
 
+const INVALID = Symbol("invalid");
+
+/** M7: the user's edits to a card — a plain object of modest size, or nothing (approve as is). The API validates the fields. */
+export function parseApprovePayload(value: unknown): unknown | typeof INVALID {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) return INVALID;
+  try {
+    return JSON.stringify(value).length <= 30_000 ? value : INVALID;
+  } catch {
+    return INVALID;
+  }
+}
+
 /** M6: recall settings patch from the renderer — toggles and the history length only (folders come from the picker). */
 export function parseRecallPatch(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -272,6 +285,24 @@ export function registerIpc(options: {
     chatHotkey: getChatHotkey(),
     hold: getHoldState(),
   }));
+
+  // ADR-006 (M7): approval cards. Approve/cancel only ever come from the user's click here.
+  ipcMain.handle("actions:list", async () => settle(() => api.listActions(), "Couldn't load your approval cards."));
+  ipcMain.handle("actions:approve", async (_event, id: unknown, payload: unknown) => {
+    const parsed = parseApprovePayload(payload);
+    if (parsed === INVALID) return { ok: false, message: "Those edits aren't valid." } satisfies ChatActionResult<never>;
+    return settle(() => api.approveAction(requireId(id, "action id"), parsed), "Couldn't approve that — try again.");
+  });
+  ipcMain.handle("actions:cancel", async (_event, id: unknown) =>
+    settle(() => api.cancelAction(requireId(id, "action id")), "Couldn't cancel that."),
+  );
+  ipcMain.handle("actions:get-settings", async () => settle(() => api.actionSettings(), "Couldn't load these settings."));
+  ipcMain.handle("actions:update-settings", async (_event, writingStyle: unknown) => {
+    if (typeof writingStyle !== "string" || writingStyle.length > 4000) {
+      return { ok: false, message: "Keep the style notes under 4,000 characters." } satisfies ChatActionResult<never>;
+    }
+    return settle(() => api.updateActionSettings(writingStyle), "Couldn't save that.");
+  });
 
   // ADR-006 (M6): recall settings, status, re-index, documents folder.
   ipcMain.handle("recall:get-settings", async () => settle(() => api.recallSettings(), "Couldn't load recall settings."));

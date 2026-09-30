@@ -40,7 +40,7 @@ function parseEventDate(value: string | null): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function toCalendarEventInput(
+export function toCalendarEventInput(
   userId: string,
   event: NormalizedCalendarEvent,
   now: Date,

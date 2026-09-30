@@ -269,7 +269,7 @@ describe("desktop api client", () => {
     await expect(client.fetchInbox()).rejects.toMatchObject({ status: 500, apiMessage: null });
   });
 
-  it("checkDue runs only the local reminder and calendar detection steps, in order", async () => {
+  it("checkDue runs only local steps, in order — reminders, due approved emails (M7 backup), calendar detection", async () => {
     const fetchImpl = vi.fn<FetchLike>().mockResolvedValue(okResponse({}));
     const client = createApiClient("http://localhost:4000", fetchImpl);
 
@@ -277,6 +277,7 @@ describe("desktop api client", () => {
 
     expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
       "http://localhost:4000/api/v1/reminders/detect-signals",
+      "http://localhost:4000/api/v1/actions/execute-due",
       "http://localhost:4000/api/v1/integrations/google/calendar/detect-signals",
     ]);
   });
