@@ -4,6 +4,7 @@ import { MemorySettings } from "./MemorySettings";
 import { ProactiveSettings } from "./ProactiveSettings";
 import { RecallSettings } from "./RecallSettings";
 import { ActionSettings } from "./ActionSettings";
+import { ConnectionsSettings } from "./ConnectionsSettings";
 import { VoiceSettings } from "./VoiceSettings";
 import {
   getChatAutoHideSeconds,
@@ -101,7 +102,7 @@ export function Settings({ onClose, onShowBriefing }: SettingsProps) {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [autoHideSeconds, setAutoHideSeconds] = useState(getChatAutoHideSeconds);
-  const [tab, setTab] = useState<"general" | "voice" | "proactive" | "recall" | "actions" | "memory" | "activity">("general");
+  const [tab, setTab] = useState<"general" | "voice" | "proactive" | "recall" | "actions" | "connections" | "memory" | "activity">("general");
   const [googleClientIdInput, setGoogleClientIdInput] = useState("");
   const [googleClientSecretInput, setGoogleClientSecretInput] = useState("");
   const [saving, setSaving] = useState(false);
@@ -229,6 +230,7 @@ export function Settings({ onClose, onShowBriefing }: SettingsProps) {
               ["proactive", "Proactive"],
               ["recall", "Recall"],
               ["actions", "Actions"],
+              ["connections", "Connections"],
               ["memory", "Memory"],
               ["activity", "Activity"],
             ] as const
@@ -250,6 +252,7 @@ export function Settings({ onClose, onShowBriefing }: SettingsProps) {
       {tab === "proactive" && <ProactiveSettings onShowBriefing={onShowBriefing} />}
       {tab === "recall" && <RecallSettings />}
       {tab === "actions" && <ActionSettings />}
+      {tab === "connections" && <ConnectionsSettings />}
       {tab === "memory" && <MemorySettings />}
       {tab === "activity" && <ActivitySettings />}
 

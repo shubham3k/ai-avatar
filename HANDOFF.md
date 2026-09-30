@@ -1,7 +1,7 @@
 # Project Handoff Document
 
 **Last Updated:** September 29, 2026
-**Phase Completed:** Phases 1–4.7 (foundation → Google OAuth/Gmail/Calendar → daily context → SQLite, single-process desktop, onboarding, secrets, auto-migrations, Windows packaging), the Sept 18–28 feature stretch (background sync, tray, reminders, dock UI), and **Zara milestones M0–M7** (see below).
+**Phase Completed:** Phases 1–4.7 (foundation → Google OAuth/Gmail/Calendar → daily context → SQLite, single-process desktop, onboarding, secrets, auto-migrations, Windows packaging), the Sept 18–28 feature stretch (background sync, tray, reminders, dock UI), and **Zara milestones M0–M8** (see below).
 
 **Current work — Zara, a local-first personal AI agent (design: `docs/decisions/ADR-006-zara-personal-agent.md`, read it first).** All Zara work is on git branch **`zara-agent`**, created from `main` after checkpoint `3a96d64`; merge back to `main` when the milestones are complete (user's instruction). Commits so far: M0 `d96f08a`, M1 `ca77fc2`, M2 `94e6181`, M3 `03b4efa`, M4 voice `30d7394`, M5 proactive `0e51869`, test-feedback fixes (memory across chats, Hindi/Hinglish transcription — see `git log`). Working tree clean at end of the Sept 29 session.
 
@@ -15,14 +15,28 @@
 | M5 proactive (briefings, pre-meeting summary, follow-ups, promises, held pop-ups, wrap-up) | ✅ in source, not yet user-tested (real sent-mail sync needs the user's Google account) |
 | M6 recall (local index over email/chats/notes/`Documents\Zara`, notes, people memory) | ✅ in source, not yet user-tested |
 | M7 approved actions (Google re-consent, approval cards, email send with 30 s undo, calendar actions, writing style) | ✅ in source, not yet user-tested (needs a Google reconnect for the new permissions) |
-| **M8 MCP connections** | **next** |
-| M9 routines | planned (ADR-006) — the user wants M8–M9 built, then tests everything together |
+| M8 MCP connections (local files, Google Drive, web search, GitHub, Notion, Slack, read-only browser, custom; strict trust) | ✅ in source, not yet user-tested |
+| **M9 routines** | **next** — the last milestone; then the user tests everything together |
 
-**How the user runs it right now:** dev mode, not the installer — `pnpm --filter @ai-agent/shared build`, `pnpm --filter @ai-agent/api build`, then `pnpm --filter @ai-agent/desktop electron:dev` (quit any installed copy first: both use port 4000). The last packaged `.exe` (Sept 28, 15:17) predates M1–M7; rebuild (`npm run package:win` in `apps/desktop`) **only when the user asks**.
+**How the user runs it right now:** dev mode, not the installer — `pnpm --filter @ai-agent/shared build`, `pnpm --filter @ai-agent/api build`, then `pnpm --filter @ai-agent/desktop electron:dev` (quit any installed copy first: both use port 4000). The last packaged `.exe` (Sept 28, 15:17) predates M1–M8; rebuild (`npm run package:win` in `apps/desktop`) **only when the user asks**.
 
 **Keys:** the OpenAI key goes in the app's **Settings → General → "AI provider (OpenAI)"** (encrypted in `%APPDATA%\@ai-agent\desktop\config.json`, shared by dev mode and the installed app). `apps/api/.env` has no OpenAI key (only Groq), so agent-side live tests run over Groq; a real OpenAI chat has **not** been verified yet. `.env.test` blanks all AI keys so tests never make billed calls.
 
 **Working rules with this user:** discuss before building new directions; never rebuild the `.exe` or commit unasked (commits on `zara-agent` per milestone are fine — the user approved that flow); after each milestone run typecheck + lint + all tests and a live check where possible.
+
+---
+
+## Addendum: Zara M8 — MCP connections (September 30, 2026)
+
+On branch `zara-agent`. New packages (approved): `@modelcontextprotocol/sdk` (official client) and `@modelcontextprotocol/server-filesystem` (bundled).
+
+- **Connections** (`domain/mcp/`, migration `zara_m8_mcp`: `McpConnection`, `McpToolPolicy`, `PendingAction.result`): presets in the agreed order — **Local files** (bundled filesystem server, run on the app's own runtime: `process.execPath` + `ELECTRON_RUN_AS_NODE=1` — no install; limited to folders picked in the native dialog), **Google Drive** (built in: `drive_search` / `drive_read` over `drive.readonly` — Docs/Sheets(CSV)/Slides export, text files ≤ 1 MB, 6,000 chars), **Web search** (Brave), **GitHub**, **Notion**, **Slack** (npm servers run via `npx -y <pkg@major>` — needs Node.js on the PC; downloaded the first time), **Browser (read-only)** (`@playwright/mcp`, only navigate/snapshot/tabs/back/wait/close — no clicks, typing, forms), and **Custom** (the user's own command). Only the user can add connections (no Zara tool for it). Secrets are stored encrypted (`encryptSecret`) and never returned to the UI (only which ones are saved). Servers start in the background; a chat waits at most 2.5 s for ones still starting.
+- **Strict trust:** every connection tool asks first — a `mcp_call` approval card ("🔌 Google Drive — Zara wants to use drive_search", risk badge reads only / changes things / ⚠ can delete or overwrite, the exact input). Only **read-only** tools can be trusted (card button "Always allow", or Settings → Connections → "don't ask"); tools that change or delete things always ask; approval is click-only (never in chat). Risk comes from the server's `readOnlyHint`/`destructiveHint`, else a cautious name-based guess (unknown → treated as changing things). Tool output is capped at 4,000 chars and labelled as data, not instructions; every call is logged in Activity. After a card is approved the desktop sends "✓ Approved …" with `continueActionId`, and the agent hands the stored result to the model with that message.
+- **Tools to the model:** up to 40 connection tools per turn, named `mcp_<connection>_<tool>` (≤ 64 chars, API-safe); descriptions prefixed with the connection and "changes things, always asks" where relevant. Prompt v9.
+- **Settings → Connections tab** (`ConnectionsSettings.tsx`): each connection's status (Ready · N tools / Starting / Problem: …), on/off, Restart, Remove, per-tool "use" and "don't ask" (disabled for non-read-only tools); Add buttons per preset (token fields as password inputs with help text; Local files opens the folder picker in the main process — the renderer never sends paths).
+- **Tests:** API 728/728, desktop 256/256, typecheck + lint clean — incl. a **real run of the bundled filesystem server** (reads a file in the chosen folder; reading outside it is refused), trust rules, browser allowlist, secret encryption, the card → approve → continue flow, and trusted tools running without a card.
+- **Live check** (Groq, DB copy, real Local files server on a test folder): "What's the offsite budget? It's in offsite.txt…" → a `read_text_file` card; after approval Zara answered "The offsite budget is 3.5 lakh — Goa, 14–16 November, owned by Priya."
+- **Needs the user:** Drive (after the Google reconnect from M7), and tokens for web search / GitHub / Notion / Slack; the browser preset downloads a browser on first use.
 
 ---
 

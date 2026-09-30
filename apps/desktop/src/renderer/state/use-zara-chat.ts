@@ -72,8 +72,8 @@ export interface ZaraChat {
   transcribing: boolean;
   view: "chat" | "history";
   conversations: ConversationSummary[];
-  /** spoken: the user said it (M4), so Zara answers aloud. */
-  send: (text: string, options?: { spoken?: boolean }) => Promise<void>;
+  /** spoken: the user said it (M4), so Zara answers aloud. continueActionId (M8): hand an approved tool's result to Zara. */
+  send: (text: string, options?: { spoken?: boolean; continueActionId?: string }) => Promise<void>;
   newChat: () => void;
   /** M3: a fresh chat that isn't saved and teaches Zara nothing. */
   incognito: boolean;
@@ -176,7 +176,7 @@ export function useZaraChat(options?: { onAction?: (action: unknown) => void }):
     [...chunker.push(text), ...chunker.flush()].forEach((chunk) => speaker.say(chunk));
   }, []);
 
-  const send = useCallback(async (rawText: string, options?: { spoken?: boolean }): Promise<void> => {
+  const send = useCallback(async (rawText: string, options?: { spoken?: boolean; continueActionId?: string }): Promise<void> => {
     const text = rawText.trim();
     const bridge = window.desktopAPI;
     if (!text || !bridge?.chatSend) return;
@@ -233,8 +233,11 @@ export function useZaraChat(options?: { onAction?: (action: unknown) => void }):
           history: history.slice(-20),
           ...(spoken ? { spoken: true } : {}),
         });
-      } else if (spoken) {
-        raw = await bridge.chatSend(conversationRef.current, text, onEvent, { spoken: true });
+      } else if (spoken || options?.continueActionId) {
+        raw = await bridge.chatSend(conversationRef.current, text, onEvent, {
+          ...(spoken ? { spoken: true } : {}),
+          ...(options?.continueActionId ? { continueActionId: options.continueActionId } : {}),
+        });
       } else {
         raw = await bridge.chatSend(conversationRef.current, text, onEvent);
       }

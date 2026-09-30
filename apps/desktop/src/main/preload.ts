@@ -56,7 +56,14 @@ export interface DesktopApiBridge {
   onHotkey(callback: () => void): () => void;
   /** ADR-006 (M7): approval cards. Each resolves `{ ok, value | message }`. */
   actionsList(): Promise<unknown>;
-  actionsApprove(actionId: string, payload?: unknown): Promise<unknown>;
+  actionsApprove(actionId: string, payload?: unknown, trustTool?: boolean): Promise<unknown>;
+  /** ADR-006 (M8): connections. Each resolves `{ ok, value | message }`. */
+  connectionsList(): Promise<unknown>;
+  connectionsAdd(input: Record<string, unknown>): Promise<unknown>;
+  connectionsUpdate(connectionId: string, patch: Record<string, unknown>): Promise<unknown>;
+  connectionsRestart(connectionId: string): Promise<unknown>;
+  connectionsRemove(connectionId: string): Promise<unknown>;
+  connectionsToolPolicy(connectionId: string, tool: string, patch: Record<string, unknown>): Promise<unknown>;
   actionsCancel(actionId: string): Promise<unknown>;
   actionsGetSettings(): Promise<unknown>;
   actionsUpdateSettings(writingStyle: string): Promise<unknown>;
@@ -79,6 +86,8 @@ export interface ChatSendOptions {
   incognito?: boolean;
   /** M4: the user spoke this message. */
   spoken?: boolean;
+  /** M8: the user just approved this connection-tool card. */
+  continueActionId?: string;
   history?: { role: "user" | "assistant"; content: string }[];
 }
 
@@ -141,7 +150,13 @@ const bridge: DesktopApiBridge = {
     return () => ipcRenderer.removeListener("zara:hotkey", listener);
   },
   actionsList: () => ipcRenderer.invoke("actions:list"),
-  actionsApprove: (actionId, payload) => ipcRenderer.invoke("actions:approve", actionId, payload),
+  actionsApprove: (actionId, payload, trustTool) => ipcRenderer.invoke("actions:approve", actionId, payload, trustTool),
+  connectionsList: () => ipcRenderer.invoke("connections:list"),
+  connectionsAdd: (input) => ipcRenderer.invoke("connections:add", input),
+  connectionsUpdate: (connectionId, patch) => ipcRenderer.invoke("connections:update", connectionId, patch),
+  connectionsRestart: (connectionId) => ipcRenderer.invoke("connections:restart", connectionId),
+  connectionsRemove: (connectionId) => ipcRenderer.invoke("connections:remove", connectionId),
+  connectionsToolPolicy: (connectionId, tool, patch) => ipcRenderer.invoke("connections:tool-policy", connectionId, tool, patch),
   actionsCancel: (actionId) => ipcRenderer.invoke("actions:cancel", actionId),
   actionsGetSettings: () => ipcRenderer.invoke("actions:get-settings"),
   actionsUpdateSettings: (writingStyle) => ipcRenderer.invoke("actions:update-settings", writingStyle),

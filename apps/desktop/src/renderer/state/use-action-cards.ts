@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type ActionKind = "email_send" | "calendar_create" | "calendar_update" | "calendar_cancel";
+export type ActionKind = "email_send" | "calendar_create" | "calendar_update" | "calendar_cancel" | "mcp_call";
 export type ActionStatus = "pending" | "sending" | "done" | "cancelled" | "failed";
 
 export interface ActionCardData {
@@ -13,11 +13,13 @@ export interface ActionCardData {
   notifies: string[];
   executeAt: string | null;
   error: string | null;
+  /** M8: what an approved connection tool returned. */
+  result: string | null;
   createdAt: string;
   voiceApprovable: boolean;
 }
 
-const KINDS: ActionKind[] = ["email_send", "calendar_create", "calendar_update", "calendar_cancel"];
+const KINDS: ActionKind[] = ["email_send", "calendar_create", "calendar_update", "calendar_cancel", "mcp_call"];
 const STATUSES: ActionStatus[] = ["pending", "sending", "done", "cancelled", "failed"];
 
 export function parseActionCard(raw: unknown): ActionCardData | null {
@@ -35,6 +37,7 @@ export function parseActionCard(raw: unknown): ActionCardData | null {
     notifies: strings(value.notifies),
     executeAt: typeof value.executeAt === "string" ? value.executeAt : null,
     error: typeof value.error === "string" ? value.error : null,
+    result: typeof value.result === "string" ? value.result : null,
     createdAt: typeof value.createdAt === "string" ? value.createdAt : new Date().toISOString(),
     voiceApprovable: value.voiceApprovable === true,
   };
@@ -54,7 +57,8 @@ export interface ActionCards {
   /** A card arrived in the chat stream (or changed). */
   upsert: (raw: unknown) => void;
   refresh: () => Promise<void>;
-  approve: (id: string, payload?: Record<string, unknown>) => Promise<string | null>;
+  /** Resolves null on success, else a message. trustTool (M8): also let this read-only tool run without asking from now on. */
+  approve: (id: string, payload?: Record<string, unknown>, options?: { trustTool?: boolean }) => Promise<string | null>;
   cancel: (id: string) => Promise<string | null>;
   /** Hide a finished card. */
   dismiss: (id: string) => void;
@@ -107,8 +111,10 @@ export function useActionCards(): ActionCards {
   }, [sending, cards, refresh]);
 
   const approve = useCallback(
-    async (id: string, payload?: Record<string, unknown>) => {
-      const result = readResult(await (window.desktopAPI?.actionsApprove?.(id, payload) ?? Promise.resolve(null)).catch(() => null));
+    async (id: string, payload?: Record<string, unknown>, options?: { trustTool?: boolean }) => {
+      const result = readResult(
+        await (window.desktopAPI?.actionsApprove?.(id, payload, options?.trustTool === true) ?? Promise.resolve(null)).catch(() => null),
+      );
       if (!result.ok) return result.message;
       upsert(result.value);
       setNow(Date.now());

@@ -21,7 +21,9 @@ import {
   type CalendarUpdatePayload,
   type EmailPayload,
   type EventSnapshot,
+  type McpCallPayload,
 } from "./action-payloads.js";
+import { getConnectionsService, type ConnectionsService } from "../mcp/connections.service.js";
 
 /** ADR-006 §8: every email waits this long after Approve, with Undo. */
 export const SEND_DELAY_MS = 30_000;
@@ -40,6 +42,8 @@ export interface ActionDto {
   notifies: string[];
   executeAt: string | null;
   error: string | null;
+  /** M8: what an approved connection tool returned (shown on the card, handed back to Zara). */
+  result: string | null;
   createdAt: string;
   /** Email: sending needs a click. Own-calendar-only changes may also be approved in chat. */
   voiceApprovable: boolean;
@@ -67,8 +71,9 @@ export function toActionDto(row: PendingAction): ActionDto {
     notifies,
     executeAt: row.executeAt?.toISOString() ?? null,
     error: row.error,
+    result: row.result,
     createdAt: row.createdAt.toISOString(),
-    voiceApprovable: kind !== "email_send" && notifies.length === 0,
+    voiceApprovable: kind !== "email_send" && kind !== "mcp_call" && notifies.length === 0,
   };
 }
 
@@ -95,6 +100,7 @@ export function createActionsService(dependencies?: {
   calendar?: CalendarWriteService;
   activity?: ActivityService;
   schedule?: (run: () => void, ms: number) => void;
+  mcp?: ConnectionsService;
 }) {
   const prisma = dependencies?.prisma ?? defaultPrisma;
   const connection = dependencies?.connection ?? createGoogleConnectionService();
@@ -102,6 +108,7 @@ export function createActionsService(dependencies?: {
   const calendar = dependencies?.calendar ?? createCalendarWriteService();
   const activity = dependencies?.activity ?? createActivityService({ prisma });
   const events = createCalendarEventsRepository(prisma);
+  const mcp = () => dependencies?.mcp ?? getConnectionsService();
   const schedule =
     dependencies?.schedule ??
     ((run: () => void, ms: number) => {
@@ -158,6 +165,16 @@ export function createActionsService(dependencies?: {
     const parsed = parsePayload(kind, JSON.parse(row.payload));
     if (!parsed.ok) {
       return prisma.pendingAction.update({ where: { id: row.id }, data: { status: "failed", error: parsed.message } });
+    }
+    if (kind === "mcp_call") {
+      const call = parsed.value as McpCallPayload;
+      try {
+        const output = await mcp().call(row.userId, call.connectionId, call.tool, call.args);
+        await activity.record(row.userId, { kind: "mcp_call", summary: `Used ${call.connectionName} · ${call.tool} (you approved it)` });
+        return prisma.pendingAction.update({ where: { id: row.id }, data: { status: "done", executedAt: new Date(), result: output, error: null } });
+      } catch (err) {
+        return prisma.pendingAction.update({ where: { id: row.id }, data: { status: "failed", error: friendlyError(err) } });
+      }
     }
     try {
       const refreshToken = await connection.getDecryptedRefreshToken(row.userId);
@@ -299,6 +316,8 @@ export function createActionsService(dependencies?: {
       } else if (kind === "calendar_create") {
         notifies = (parsed.value as CalendarCreatePayload).attendees.filter((address) => address !== self);
         recipients = await newRecipients(userId, notifies);
+      } else if (kind === "mcp_call") {
+        notifies = [];
       } else {
         const target = await eventSnapshot(userId, (parsed.value as CalendarUpdatePayload | CalendarCancelPayload).eventId);
         before = target.snapshot;
@@ -344,7 +363,12 @@ export function createActionsService(dependencies?: {
      * (Zara approving on the user's spoken/typed "yes") is refused for email
      * and for anything that notifies other people.
      */
-    async approve(userId: string, id: string, options: { payload?: unknown; via: "click" | "chat" }, now: Date = new Date()): Promise<ActionDto> {
+    async approve(
+      userId: string,
+      id: string,
+      options: { payload?: unknown; via: "click" | "chat"; trustTool?: boolean },
+      now: Date = new Date(),
+    ): Promise<ActionDto> {
       const row = await find(userId, id);
       if (row.status !== "pending") throw conflictError("That card was already handled.");
       const kind = row.kind as ActionKind;
@@ -353,6 +377,12 @@ export function createActionsService(dependencies?: {
         throw conflictError(kind === "email_send" ? "Emails are only sent after you click Approve on the card." : "This change notifies other people — please approve it on the card.");
       }
       let payload = row.payload;
+      if (kind === "mcp_call" && options.payload !== undefined) throw validationError("Connection tool calls can't be edited — cancel and ask Zara again.");
+      if (kind === "mcp_call" && options.trustTool) {
+        const call = JSON.parse(row.payload) as McpCallPayload;
+        if (!call.readOnly) throw validationError("Only tools that just read can run without asking.");
+        await mcp().setToolPolicy(userId, call.connectionId, call.tool, { trusted: true });
+      }
       if (options.payload !== undefined) {
         const parsed = parsePayload(kind, options.payload);
         if (!parsed.ok) throw validationError(parsed.message);
@@ -374,7 +404,7 @@ export function createActionsService(dependencies?: {
         schedule(() => void executeDue(), SEND_DELAY_MS + 250);
         return toActionDto(updated);
       }
-      // Calendar changes run straight away; execute() records done/failed.
+      // Calendar changes and connection tools run straight away; execute() records done/failed.
       const updated = await prisma.pendingAction.update({ where: { id }, data: { payload, status: "done", executeAt: now } });
       return toActionDto(await execute(updated));
     },

@@ -255,6 +255,14 @@ app.whenReady().then(async () => {
       app.exit(0);
     },
     getHoldState: () => proactive?.hold() ?? { holding: false, reason: null },
+    chooseFolders: async () => {
+      const options = {
+        title: "Choose the folders Zara may read",
+        properties: ["openDirectory" as const, "multiSelections" as const],
+      };
+      const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+      return result.canceled ? [] : result.filePaths;
+    },
     chooseFolder: async () => {
       const options = { title: "Choose the folder Zara should read", properties: ["openDirectory" as const, "createDirectory" as const] };
       const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dock } from "./components/Dock";
 import { InterventionOverlay } from "./components/InterventionOverlay";
 import { InterventionStatus } from "./components/InterventionStatus";
@@ -49,6 +49,23 @@ export default function App() {
   const actionCards = useActionCards();
   const chat = useZaraChat({ onAction: actionCards.upsert });
   const refreshCards = actionCards.refresh;
+  // M8: once the user approves a connection-tool card, Zara carries on with its result.
+  const { approve: approveCard } = actionCards;
+  const sendToZara = chat.send;
+  const cardsForPanel = useMemo(
+    () => ({
+      ...actionCards,
+      approve: async (id: string, payload?: Record<string, unknown>, options?: { trustTool?: boolean }) => {
+        const card = actionCards.cards.find((candidate) => candidate.id === id);
+        const error = await approveCard(id, payload, options);
+        if (!error && card?.kind === "mcp_call") {
+          void sendToZara(`✓ Approved ${String(card.payload.connectionName ?? "")} · ${String(card.payload.tool ?? "")}`, { continueActionId: id });
+        }
+        return error;
+      },
+    }),
+    [actionCards, approveCard, sendToZara],
+  );
   const [chatOpen, setChatOpen] = useState(false);
   // M4: bumped by the global hotkey so the chat box gets the cursor.
   const [chatFocusSignal, setChatFocusSignal] = useState(0);
@@ -276,7 +293,7 @@ export default function App() {
               : getChatAutoHideSeconds()
           }
           focusSignal={chatFocusSignal}
-          cards={actionCards}
+          cards={cardsForPanel}
         />
       )}
       <Dock

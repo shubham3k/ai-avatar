@@ -4,7 +4,7 @@ import type { ActionCardData } from "../state/use-action-cards";
 export interface ActionCardProps {
   card: ActionCardData;
   now: number;
-  onApprove: (id: string, payload?: Record<string, unknown>) => Promise<string | null>;
+  onApprove: (id: string, payload?: Record<string, unknown>, options?: { trustTool?: boolean }) => Promise<string | null>;
   onCancel: (id: string) => Promise<string | null>;
   onDismiss: (id: string) => void;
 }
@@ -80,13 +80,15 @@ export function ActionCard({ card, now, onApprove, onCancel, onDismiss }: Action
   };
 
   const isEmail = card.kind === "email_send";
-  const canEdit = card.kind !== "calendar_cancel";
+  const isTool = card.kind === "mcp_call";
+  const canEdit = card.kind !== "calendar_cancel" && !isTool;
   const secondsLeft = card.executeAt ? Math.max(0, Math.ceil((new Date(card.executeAt).getTime() - now) / 1000)) : 0;
   const heading = {
     email_send: "✉ Email",
     calendar_create: "📅 New event",
     calendar_update: "📅 Change an event",
     calendar_cancel: "📅 Cancel an event",
+    mcp_call: `🔌 ${String(payload.connectionName ?? "Connection")}`,
   }[card.kind];
 
   return (
@@ -102,7 +104,18 @@ export function ActionCard({ card, now, onApprove, onCancel, onDismiss }: Action
         </span>
       </div>
 
-      {editing ? (
+      {isTool ? (
+        <div className="action-card-body">
+          <div>
+            Zara wants to use <b>{String(payload.tool ?? "")}</b>
+            <span className={`tool-badge ${payload.destructive ? "tool-danger" : payload.readOnly ? "tool-read" : "tool-write"}`}>
+              {payload.destructive ? "⚠ can delete or overwrite" : payload.readOnly ? "reads only" : "changes things"}
+            </span>
+          </div>
+          <pre className="action-card-args">{JSON.stringify(payload.args ?? {}, null, 2).slice(0, 1500)}</pre>
+          {card.status === "done" && card.result && <div className="action-card-note">Zara got the result and will carry on.</div>}
+        </div>
+      ) : editing ? (
         <div className="action-card-edit">
           {isEmail ? (
             <>
@@ -183,7 +196,7 @@ export function ActionCard({ card, now, onApprove, onCancel, onDismiss }: Action
           ⚠ First time emailing {card.newRecipients.join(", ")} — check the address.
         </div>
       )}
-      {!isEmail && card.status === "pending" && (
+      {!isEmail && !isTool && card.status === "pending" && (
         <div className="action-card-note">
           {card.notifies.length > 0
             ? `${card.notifies.join(", ")} will get an email from Google about this.`
@@ -200,8 +213,19 @@ export function ActionCard({ card, now, onApprove, onCancel, onDismiss }: Action
         {card.status === "pending" && !editing && (
           <>
             <button type="button" className="button button-done" disabled={busy} onClick={() => void run(() => onApprove(card.id))}>
-              {isEmail ? "Approve & send" : "Approve"}
+              {isEmail ? "Approve & send" : isTool ? "Allow once" : "Approve"}
             </button>
+            {isTool && payload.readOnly === true && (
+              <button
+                type="button"
+                className="button button-snooze"
+                disabled={busy}
+                title="Let Zara use this read-only tool without asking from now on (change it in Settings → Connections)"
+                onClick={() => void run(() => onApprove(card.id, undefined, { trustTool: true }))}
+              >
+                Always allow
+              </button>
+            )}
             {canEdit && (
               <button type="button" className="button button-snooze" disabled={busy} onClick={() => setEditing(true)}>
                 Edit

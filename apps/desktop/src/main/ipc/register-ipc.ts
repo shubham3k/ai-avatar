@@ -74,6 +74,56 @@ const PROACTIVE_FIELDS: Record<string, "boolean" | "number" | "string"> = {
   quietHoursEnd: "string",
 };
 
+const PRESET_IDS = ["local_files", "google_drive", "web_search", "github", "notion", "slack", "browser", "custom"];
+
+function stringRecord(value: unknown, maxKeys: number): Record<string, string> | null {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > maxKeys) return null;
+  const out: Record<string, string> = {};
+  for (const [key, field] of entries) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key) || typeof field !== "string" || field.length > 2000) return null;
+    out[key] = field;
+  }
+  return out;
+}
+
+/** M8: a new connection from the renderer — known preset, string secrets, optional custom command/args. Folders are never taken from here. */
+export function parseConnectionInput(value: unknown): { preset: string; name?: string; secrets: Record<string, string>; command?: string; args?: string[] } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const input = value as Record<string, unknown>;
+  if (typeof input.preset !== "string" || !PRESET_IDS.includes(input.preset)) return null;
+  const secrets = stringRecord(input.secrets, 20);
+  if (!secrets) return null;
+  if (input.name !== undefined && (typeof input.name !== "string" || input.name.length > 60)) return null;
+  if (input.command !== undefined && (typeof input.command !== "string" || input.command.length > 300)) return null;
+  if (input.args !== undefined && (!Array.isArray(input.args) || input.args.length > 30 || input.args.some((arg) => typeof arg !== "string" || arg.length > 300))) return null;
+  return {
+    preset: input.preset,
+    secrets,
+    ...(typeof input.name === "string" ? { name: input.name } : {}),
+    ...(typeof input.command === "string" ? { command: input.command } : {}),
+    ...(Array.isArray(input.args) ? { args: input.args as string[] } : {}),
+  };
+}
+
+export function parseConnectionPatch(value: unknown): { enabled?: boolean; secrets?: Record<string, string> } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const input = value as Record<string, unknown>;
+  const out: { enabled?: boolean; secrets?: Record<string, string> } = {};
+  if (input.enabled !== undefined) {
+    if (typeof input.enabled !== "boolean") return null;
+    out.enabled = input.enabled;
+  }
+  if (input.secrets !== undefined) {
+    const secrets = stringRecord(input.secrets, 20);
+    if (!secrets) return null;
+    out.secrets = secrets;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 const INVALID = Symbol("invalid");
 
 /** M7: the user's edits to a card — a plain object of modest size, or nothing (approve as is). The API validates the fields. */
@@ -194,6 +244,8 @@ export function registerIpc(options: {
   saveGoogleCredentialsAndRestart: (clientId: string, clientSecret: string) => void;
   /** M6: native folder picker for the documents folder; null when cancelled. */
   chooseFolder?: () => Promise<string | null>;
+  /** M8: native picker for one or more folders (Local files connection); [] when cancelled. */
+  chooseFolders?: () => Promise<string[]>;
   /** M5: whether pop-ups are held right now (full-screen, presentation, call, quiet hours). */
   getHoldState: () => { holding: boolean; reason: string | null };
   /** M5: settings changed — re-evaluate holds right away. */
@@ -226,6 +278,7 @@ export function registerIpc(options: {
     getHoldState,
     onProactiveSettingsChanged,
     chooseFolder,
+    chooseFolders,
   } = options;
 
   ipcMain.handle("inbox:get", async () => api.fetchInbox());
@@ -288,10 +341,47 @@ export function registerIpc(options: {
 
   // ADR-006 (M7): approval cards. Approve/cancel only ever come from the user's click here.
   ipcMain.handle("actions:list", async () => settle(() => api.listActions(), "Couldn't load your approval cards."));
-  ipcMain.handle("actions:approve", async (_event, id: unknown, payload: unknown) => {
+  ipcMain.handle("actions:approve", async (_event, id: unknown, payload: unknown, trustTool: unknown) => {
     const parsed = parseApprovePayload(payload);
     if (parsed === INVALID) return { ok: false, message: "Those edits aren't valid." } satisfies ChatActionResult<never>;
-    return settle(() => api.approveAction(requireId(id, "action id"), parsed), "Couldn't approve that — try again.");
+    return settle(
+      () => api.approveAction(requireId(id, "action id"), parsed, trustTool === true),
+      "Couldn't approve that — try again.",
+    );
+  });
+
+  // ADR-006 (M8): connections. Folders come from the native picker here, never from the renderer.
+  ipcMain.handle("connections:list", async () => settle(() => api.listConnections(), "Couldn't load your connections."));
+  ipcMain.handle("connections:add", async (_event, input: unknown) => {
+    const parsed = parseConnectionInput(input);
+    if (!parsed) return { ok: false, message: "That connection isn't valid." } satisfies ChatActionResult<never>;
+    if (parsed.preset === "local_files") {
+      const folders = (await chooseFolders?.()) ?? [];
+      if (folders.length === 0) return { ok: true, value: null } satisfies ChatActionResult<null>;
+      return settle(() => api.addConnection({ ...parsed, folders }), "Couldn't add that connection.");
+    }
+    return settle(() => api.addConnection(parsed), "Couldn't add that connection.");
+  });
+  ipcMain.handle("connections:update", async (_event, id: unknown, patch: unknown) => {
+    const parsed = parseConnectionPatch(patch);
+    if (!parsed) return { ok: false, message: "That change isn't valid." } satisfies ChatActionResult<never>;
+    return settle(() => api.updateConnection(requireId(id, "connection id"), parsed), "Couldn't update that connection.");
+  });
+  ipcMain.handle("connections:restart", async (_event, id: unknown) =>
+    settle(() => api.restartConnection(requireId(id, "connection id")), "Couldn't restart it."),
+  );
+  ipcMain.handle("connections:remove", async (_event, id: unknown) =>
+    settle(() => api.removeConnection(requireId(id, "connection id")), "Couldn't remove it."),
+  );
+  ipcMain.handle("connections:tool-policy", async (_event, id: unknown, tool: unknown, patch: unknown) => {
+    if (typeof tool !== "string" || tool.length === 0 || tool.length > 128) return { ok: false, message: "Unknown tool." } satisfies ChatActionResult<never>;
+    const value = patch && typeof patch === "object" ? (patch as Record<string, unknown>) : {};
+    const clean = {
+      ...(typeof value.enabled === "boolean" ? { enabled: value.enabled } : {}),
+      ...(typeof value.trusted === "boolean" ? { trusted: value.trusted } : {}),
+    };
+    if (Object.keys(clean).length === 0) return { ok: false, message: "Nothing to change." } satisfies ChatActionResult<never>;
+    return settle(() => api.setToolPolicy(requireId(id, "connection id"), tool, clean), "Couldn't change that tool.");
   });
   ipcMain.handle("actions:cancel", async (_event, id: unknown) =>
     settle(() => api.cancelAction(requireId(id, "action id")), "Couldn't cancel that."),
@@ -449,12 +539,15 @@ export function registerIpc(options: {
       }
       const incognito = !!options && typeof options === "object" && (options as { incognito?: unknown }).incognito === true;
       const spoken = !!options && typeof options === "object" && (options as { spoken?: unknown }).spoken === true;
+      const continueRaw = options && typeof options === "object" ? (options as { continueActionId?: unknown }).continueActionId : undefined;
+      const continueActionId = typeof continueRaw === "string" && continueRaw.length > 0 && continueRaw.length <= 100 ? continueRaw : undefined;
       try {
         await api.sendChatMessage(
           {
             conversationId: !incognito && typeof conversationId === "string" ? conversationId : undefined,
             text: text.trim(),
             ...(spoken ? { spoken: true } : {}),
+            ...(continueActionId ? { continueActionId } : {}),
             ...(incognito
               ? { incognito: true, history: parseChatHistory((options as { history?: unknown }).history) ?? [] }
               : {}),

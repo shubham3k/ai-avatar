@@ -454,6 +454,8 @@ export const sendChatMessageRequestSchema = z.object({
   text: z.string().trim().min(1).max(4000),
   // M4: the user spoke this message — Zara's reply will be read aloud.
   spoken: z.boolean().optional(),
+  // M8: the user just approved this connection-tool card; its result is handed to Zara with this message.
+  continueActionId: z.string().min(1).max(100).optional(),
   // M3 incognito: nothing is stored or learned; the client sends the history instead.
   incognito: z.boolean().optional(),
   history: z
@@ -639,7 +641,7 @@ export const recallSearchResponseSchema = z.object({
 // ADR-006 (M7): actions with approval.
 export const actionDtoSchema = z.object({
   id: z.string(),
-  kind: z.enum(["email_send", "calendar_create", "calendar_update", "calendar_cancel"]),
+  kind: z.enum(["email_send", "calendar_create", "calendar_update", "calendar_cancel", "mcp_call"]),
   status: z.enum(["pending", "sending", "done", "cancelled", "failed"]),
   payload: z.unknown(),
   before: z.unknown().nullable(),
@@ -647,11 +649,16 @@ export const actionDtoSchema = z.object({
   notifies: z.array(z.string()),
   executeAt: z.string().nullable(),
   error: z.string().nullable(),
+  result: z.string().nullable(),
   createdAt: z.string(),
   voiceApprovable: z.boolean(),
 });
 export const actionsResponseSchema = z.object({ actions: z.array(actionDtoSchema) });
-export const approveActionRequestSchema = z.object({ payload: z.unknown().optional() });
+export const approveActionRequestSchema = z.object({
+  payload: z.unknown().optional(),
+  // M8: approve a read-only connection tool and trust it from now on.
+  trustTool: z.boolean().optional(),
+});
 export const actionSettingsSchema = z.object({
   writingStyle: z.string(),
   permissions: z.object({
@@ -663,3 +670,55 @@ export const actionSettingsSchema = z.object({
 });
 export const updateActionSettingsSchema = z.object({ writingStyle: z.string().max(4000) });
 export const executeDueResponseSchema = z.object({ executed: z.number().int() });
+
+// ADR-006 (M8): connections (MCP servers + built-in Google Drive).
+export const connectionPresetIdSchema = z.enum(["local_files", "google_drive", "web_search", "github", "notion", "slack", "browser", "custom"]);
+export const connectionPresetSchema = z.object({
+  id: connectionPresetIdSchema,
+  name: z.string(),
+  description: z.string(),
+  runtime: z.enum(["bundled", "npx", "builtin", "custom"]),
+  secrets: z.array(z.object({ key: z.string(), label: z.string(), help: z.string() })),
+  needsFolders: z.boolean().optional(),
+  note: z.string().optional(),
+});
+export const connectionDtoSchema = z.object({
+  id: z.string(),
+  preset: connectionPresetIdSchema,
+  name: z.string(),
+  enabled: z.boolean(),
+  folders: z.array(z.string()),
+  savedSecrets: z.array(z.string()),
+  command: z.string().nullable(),
+  args: z.array(z.string()),
+  status: z.enum(["off", "starting", "ready", "error"]),
+  error: z.string().nullable(),
+  tools: z.array(
+    z.object({
+      name: z.string(),
+      description: z.string(),
+      readOnly: z.boolean(),
+      destructive: z.boolean(),
+      enabled: z.boolean(),
+      trusted: z.boolean(),
+    }),
+  ),
+});
+export const connectionsResponseSchema = z.object({
+  presets: z.array(connectionPresetSchema),
+  connections: z.array(connectionDtoSchema),
+});
+export const addConnectionRequestSchema = z.object({
+  preset: connectionPresetIdSchema,
+  name: z.string().trim().max(60).optional(),
+  folders: z.array(z.string().max(500)).max(20).optional(),
+  secrets: z.record(z.string().max(2000)).optional(),
+  command: z.string().trim().max(300).optional(),
+  args: z.array(z.string().max(300)).max(30).optional(),
+});
+export const updateConnectionRequestSchema = z.object({
+  enabled: z.boolean().optional(),
+  secrets: z.record(z.string().max(2000)).optional(),
+});
+export const toolPolicyRequestSchema = z.object({ enabled: z.boolean().optional(), trusted: z.boolean().optional() });
+export const toolPolicyParamsSchema = z.object({ id: z.string().min(1), tool: z.string().min(1).max(128) });

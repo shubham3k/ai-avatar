@@ -27,13 +27,16 @@ export type ActivityKind =
   | "calendar_created"
   | "calendar_updated"
   | "calendar_cancelled"
-  | "action_cancelled";
+  | "action_cancelled"
+  // M8: a connection (MCP) tool was used.
+  | "mcp_call";
 
 const noUndo = z.object({}).strict();
 
 const undoSchemas = {
   email_sent: noUndo,
   action_cancelled: noUndo,
+  mcp_call: noUndo,
   calendar_created: z.object({ calendarId: z.string(), providerEventId: z.string() }),
   calendar_updated: z.object({
     calendarId: z.string(),
@@ -134,6 +137,7 @@ export function createActivityService(dependencies?: { prisma?: PrismaClient; ca
       }
       case "email_sent":
       case "action_cancelled":
+      case "mcp_call":
         throw conflictError("That can't be undone.");
       case "calendar_created":
         await undoCalendarCreate(prisma, userId, undoSchemas.calendar_created.parse(raw), calendarUndo);

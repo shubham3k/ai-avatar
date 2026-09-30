@@ -5,6 +5,8 @@ import {
   OPENAI_MODEL_CHOICES,
   parseChatHistory,
   parseApprovePayload,
+  parseConnectionInput,
+  parseConnectionPatch,
   parseProactivePatch,
   parseRecallPatch,
   parseSpeakRequest,
@@ -155,5 +157,27 @@ describe("parseApprovePayload (M7)", () => {
     expect(typeof parseApprovePayload("send it")).toBe("symbol");
     expect(typeof parseApprovePayload([1])).toBe("symbol");
     expect(typeof parseApprovePayload({ body: "x".repeat(40_000) })).toBe("symbol");
+  });
+});
+
+describe("connection IPC validation (M8)", () => {
+  it("accepts a known preset with string secrets; never folders", () => {
+    expect(parseConnectionInput({ preset: "github", secrets: { GITHUB_PERSONAL_ACCESS_TOKEN: "t" } })).toEqual({
+      preset: "github",
+      secrets: { GITHUB_PERSONAL_ACCESS_TOKEN: "t" },
+    });
+    expect(parseConnectionInput({ preset: "local_files", folders: ["C:\\"] })).toEqual({ preset: "local_files", secrets: {} });
+  });
+
+  it("rejects unknown presets, odd secrets, and oversized commands", () => {
+    expect(parseConnectionInput({ preset: "evil" })).toBeNull();
+    expect(parseConnectionInput({ preset: "custom", secrets: { "bad key": "x" } })).toBeNull();
+    expect(parseConnectionInput({ preset: "custom", command: "x".repeat(400) })).toBeNull();
+    expect(parseConnectionInput({ preset: "custom", args: [1] })).toBeNull();
+  });
+
+  it("patches only enabled and secrets", () => {
+    expect(parseConnectionPatch({ enabled: false })).toEqual({ enabled: false });
+    expect(parseConnectionPatch({ command: "rm" })).toBeNull();
   });
 });

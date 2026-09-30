@@ -934,4 +934,37 @@ describe("desktop overlay", () => {
       vi.restoreAllMocks();
     });
   });
+
+  describe("connection tool approval (ADR-006 M8)", () => {
+    it("approving a tool card sends Zara the go-ahead with its result", async () => {
+      const card = {
+        id: "t1",
+        kind: "mcp_call",
+        status: "pending",
+        payload: { connectionId: "c1", connectionName: "Google Drive", tool: "drive_search", args: { query: "budget" }, readOnly: true, destructive: false },
+        before: null,
+        newRecipients: [],
+        notifies: [],
+        executeAt: null,
+        error: null,
+        result: null,
+        createdAt: "2026-09-30T10:00:00.000Z",
+        voiceApprovable: false,
+      };
+      const chatSend = vi.fn(async () => ({ ok: true, value: null }));
+      installBridge({
+        actionsList: vi.fn().mockResolvedValue({ ok: true, value: { actions: [card] } }),
+        actionsApprove: vi.fn().mockResolvedValue({ ok: true, value: { ...card, status: "done", result: "2 files" } }),
+        chatSend,
+      });
+      render(<App />);
+      await screen.findByTestId("intervention-card");
+      fireEvent.click(within(screen.getByTestId("dock")).getByRole("button", { name: "Chat with Zara" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Allow once" }));
+
+      await waitFor(() =>
+        expect(chatSend).toHaveBeenCalledWith(null, "✓ Approved Google Drive · drive_search", expect.any(Function), { continueActionId: "t1" }),
+      );
+    });
+  });
 });

@@ -34,6 +34,7 @@ export const actionsRoutes: FastifyPluginAsyncZod = async (app) => {
       actions.approve(await requireCaller(request), request.params.id, {
         via: "click",
         ...(request.body.payload !== undefined ? { payload: request.body.payload } : {}),
+        ...(request.body.trustTool ? { trustTool: true } : {}),
       }),
   );
 

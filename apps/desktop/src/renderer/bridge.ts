@@ -34,7 +34,12 @@ interface DesktopApiBridge {
     conversationId: string | null,
     text: string,
     onEvent: (event: unknown) => void,
-    options?: { incognito?: boolean; spoken?: boolean; history?: { role: "user" | "assistant"; content: string }[] },
+    options?: {
+      incognito?: boolean;
+      spoken?: boolean;
+      continueActionId?: string;
+      history?: { role: "user" | "assistant"; content: string }[];
+    },
   ): Promise<unknown>;
   /** ADR-006 (M3): each resolves `{ ok, value | message }`. Optional so older test doubles still type-check. */
   chatDelete?(conversationId: string): Promise<unknown>;
@@ -52,7 +57,14 @@ interface DesktopApiBridge {
   onHotkey?(callback: () => void): () => void;
   /** ADR-006 (M7). Optional so older test doubles still type-check. */
   actionsList?(): Promise<unknown>;
-  actionsApprove?(actionId: string, payload?: unknown): Promise<unknown>;
+  actionsApprove?(actionId: string, payload?: unknown, trustTool?: boolean): Promise<unknown>;
+  /** ADR-006 (M8). Optional so older test doubles still type-check. */
+  connectionsList?(): Promise<unknown>;
+  connectionsAdd?(input: Record<string, unknown>): Promise<unknown>;
+  connectionsUpdate?(connectionId: string, patch: Record<string, unknown>): Promise<unknown>;
+  connectionsRestart?(connectionId: string): Promise<unknown>;
+  connectionsRemove?(connectionId: string): Promise<unknown>;
+  connectionsToolPolicy?(connectionId: string, tool: string, patch: Record<string, unknown>): Promise<unknown>;
   actionsCancel?(actionId: string): Promise<unknown>;
   actionsGetSettings?(): Promise<unknown>;
   actionsUpdateSettings?(writingStyle: string): Promise<unknown>;

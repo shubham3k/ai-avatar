@@ -6,7 +6,7 @@ import { z } from "zod";
  * it's executed — the payload is the single source of truth for what
  * leaves the PC.
  */
-export type ActionKind = "email_send" | "calendar_create" | "calendar_update" | "calendar_cancel";
+export type ActionKind = "email_send" | "calendar_create" | "calendar_update" | "calendar_cancel" | "mcp_call";
 export type ActionStatus = "pending" | "sending" | "done" | "cancelled" | "failed";
 
 const address = z.string().trim().toLowerCase().email().max(254);
@@ -55,17 +55,29 @@ export const calendarCancelPayloadSchema = z.object({
   title: z.string(),
 });
 
+/** M8: a connection tool Zara wants to use (strict trust: asks unless the user trusted this read-only tool). */
+export const mcpCallPayloadSchema = z.object({
+  connectionId: z.string(),
+  connectionName: z.string(),
+  tool: z.string().max(128),
+  args: z.record(z.unknown()).refine((value) => JSON.stringify(value).length <= 20_000, "Too much input for one tool call."),
+  readOnly: z.boolean(),
+  destructive: z.boolean(),
+});
+
 export const PAYLOAD_SCHEMAS = {
   email_send: emailPayloadSchema,
   calendar_create: calendarCreatePayloadSchema,
   calendar_update: calendarUpdatePayloadSchema,
   calendar_cancel: calendarCancelPayloadSchema,
+  mcp_call: mcpCallPayloadSchema,
 } as const;
 
 export type EmailPayload = z.infer<typeof emailPayloadSchema>;
 export type CalendarCreatePayload = z.infer<typeof calendarCreatePayloadSchema>;
 export type CalendarUpdatePayload = z.infer<typeof calendarUpdatePayloadSchema>;
 export type CalendarCancelPayload = z.infer<typeof calendarCancelPayloadSchema>;
+export type McpCallPayload = z.infer<typeof mcpCallPayloadSchema>;
 
 /** The event as it was before an update/cancel — shown as "before → after" and used by Undo. */
 export interface EventSnapshot {
@@ -101,5 +113,7 @@ export function describeAction(kind: ActionKind, payload: unknown): string {
       return `change to an event${(payload as CalendarUpdatePayload).title ? ` ("${(payload as CalendarUpdatePayload).title}")` : ""}`;
     case "calendar_cancel":
       return `cancelling "${(payload as CalendarCancelPayload).title}"`;
+    case "mcp_call":
+      return `${(payload as McpCallPayload).connectionName} · ${(payload as McpCallPayload).tool}`;
   }
 }

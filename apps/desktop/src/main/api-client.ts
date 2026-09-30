@@ -76,7 +76,14 @@ export interface ApiClient {
   ): Promise<unknown>;
   /** ADR-006 (M7): approval cards and writing style. */
   listActions(): Promise<unknown>;
-  approveAction(actionId: string, payload?: unknown): Promise<unknown>;
+  approveAction(actionId: string, payload?: unknown, trustTool?: boolean): Promise<unknown>;
+  /** ADR-006 (M8): connections. */
+  listConnections(): Promise<unknown>;
+  addConnection(input: Record<string, unknown>): Promise<unknown>;
+  updateConnection(connectionId: string, patch: Record<string, unknown>): Promise<unknown>;
+  restartConnection(connectionId: string): Promise<unknown>;
+  removeConnection(connectionId: string): Promise<unknown>;
+  setToolPolicy(connectionId: string, tool: string, patch: Record<string, unknown>): Promise<unknown>;
   cancelAction(actionId: string): Promise<unknown>;
   actionSettings(): Promise<unknown>;
   updateActionSettings(writingStyle: string): Promise<unknown>;
@@ -113,6 +120,8 @@ export interface ChatSendRequest {
   history?: { role: "user" | "assistant"; content: string }[] | undefined;
   /** M4: the user spoke this message — Zara's reply will be read aloud. */
   spoken?: boolean | undefined;
+  /** M8: the user just approved this connection-tool card. */
+  continueActionId?: string | undefined;
 }
 
 export interface FetchLike {
@@ -250,10 +259,31 @@ export function createApiClient(baseUrl: string, fetchImpl: FetchLike = fetch as
     listActions() {
       return request("/actions");
     },
-    approveAction(actionId, payload) {
+    approveAction(actionId, payload, trustTool) {
       return request(`/actions/${encodeURIComponent(actionId)}/approve`, {
         method: "POST",
-        body: JSON.stringify(payload === undefined ? {} : { payload }),
+        body: JSON.stringify({ ...(payload === undefined ? {} : { payload }), ...(trustTool ? { trustTool: true } : {}) }),
+      });
+    },
+    listConnections() {
+      return request("/connections");
+    },
+    addConnection(input) {
+      return request("/connections", { method: "POST", body: JSON.stringify(input) });
+    },
+    updateConnection(connectionId, patch) {
+      return request(`/connections/${encodeURIComponent(connectionId)}`, { method: "PATCH", body: JSON.stringify(patch) });
+    },
+    restartConnection(connectionId) {
+      return request(`/connections/${encodeURIComponent(connectionId)}/restart`, { method: "POST", body: "{}" });
+    },
+    removeConnection(connectionId) {
+      return request(`/connections/${encodeURIComponent(connectionId)}`, { method: "DELETE" });
+    },
+    setToolPolicy(connectionId, tool, patch) {
+      return request(`/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(tool)}`, {
+        method: "PUT",
+        body: JSON.stringify(patch),
       });
     },
     cancelAction(actionId) {

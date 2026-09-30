@@ -374,6 +374,7 @@ model PendingAction {
   executeAt      DateTime?
   executedAt     DateTime?
   resultId       String?
+  result         String? // M8: text an approved connection tool returned (capped), handed back to Zara
   error          String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -398,4 +399,36 @@ model DraftEdit {
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
+}
+
+// ADR-006 M8: connections Zara can use through MCP (plus built-in Google
+// Drive). Secrets (tokens) are stored encrypted and never sent back to the UI.
+model McpConnection {
+  id           String          @id @default(cuid())
+  userId       String
+  preset       String // local_files | google_drive | web_search | github | notion | slack | browser | custom
+  name         String
+  command      String? // custom connections only
+  args         String          @default("[]") // JSON
+  folders      String          @default("[]") // local_files: the folders it may read (JSON)
+  envEncrypted String? // encrypted JSON of secret environment variables
+  enabled      Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  tools        McpToolPolicy[]
+
+  @@index([userId])
+}
+
+// Strict trust: every tool asks first unless the user trusts it — and only
+// read-only tools can be trusted.
+model McpToolPolicy {
+  id           String        @id @default(cuid())
+  connectionId String
+  toolName     String
+  enabled      Boolean       @default(true)
+  trusted      Boolean       @default(false)
+  connection   McpConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, toolName])
 }
