@@ -641,7 +641,7 @@ export const recallSearchResponseSchema = z.object({
 // ADR-006 (M7): actions with approval.
 export const actionDtoSchema = z.object({
   id: z.string(),
-  kind: z.enum(["email_send", "calendar_create", "calendar_update", "calendar_cancel", "mcp_call"]),
+  kind: z.enum(["email_send", "calendar_create", "calendar_update", "calendar_cancel", "mcp_call", "chat_send"]),
   status: z.enum(["pending", "sending", "done", "cancelled", "failed"]),
   payload: z.unknown(),
   before: z.unknown().nullable(),
@@ -666,6 +666,8 @@ export const actionSettingsSchema = z.object({
     sendEmail: z.boolean(),
     editCalendar: z.boolean(),
     readDrive: z.boolean(),
+    // ADR-006 §8a: read + send Google Chat.
+    googleChat: z.boolean(),
   }),
 });
 export const updateActionSettingsSchema = z.object({ writingStyle: z.string().max(4000) });

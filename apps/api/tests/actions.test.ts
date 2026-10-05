@@ -102,8 +102,8 @@ describe("outgoing email format (M7)", () => {
 
   it("asks for send / calendar-write / drive-read and reports what's granted", () => {
     expect(GOOGLE_OAUTH_SCOPES).toEqual(expect.arrayContaining([expect.stringMatching(/gmail\.send$/), expect.stringMatching(/calendar\.events$/), expect.stringMatching(/drive\.readonly$/)]));
-    expect(grantedCapabilities(["https://www.googleapis.com/auth/gmail.readonly"])).toEqual({ sendEmail: false, editCalendar: false, readDrive: false });
-    expect(grantedCapabilities([...GOOGLE_OAUTH_SCOPES])).toEqual({ sendEmail: true, editCalendar: true, readDrive: true });
+    expect(grantedCapabilities(["https://www.googleapis.com/auth/gmail.readonly"])).toEqual({ sendEmail: false, editCalendar: false, readDrive: false, googleChat: false });
+    expect(grantedCapabilities([...GOOGLE_OAUTH_SCOPES])).toEqual({ sendEmail: true, editCalendar: true, readDrive: true, googleChat: true });
   });
 });
 
@@ -299,7 +299,7 @@ describe("actions routes (M7)", () => {
       const settings = await app.inject({ method: "GET", url: "/api/v1/actions/settings", headers });
       expect(settings.json()).toEqual({
         writingStyle: "",
-        permissions: { connected: true, sendEmail: false, editCalendar: false, readDrive: false },
+        permissions: { connected: true, sendEmail: false, editCalendar: false, readDrive: false, googleChat: false },
       });
       const saved = await app.inject({ method: "PATCH", url: "/api/v1/actions/settings", headers, payload: { writingStyle: "Short, warm, sign off 'Cheers, Shubham'" } });
       expect(saved.json().writingStyle).toMatch(/Cheers/);

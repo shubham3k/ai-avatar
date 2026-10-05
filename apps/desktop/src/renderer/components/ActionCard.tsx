@@ -55,6 +55,7 @@ export function ActionCard({ card, now, onApprove, onCancel, onDismiss }: Action
     cc: strings(payload.cc).join(", "),
     subject: typeof payload.subject === "string" ? payload.subject : "",
     body: typeof payload.body === "string" ? payload.body : "",
+    text: typeof payload.text === "string" ? payload.text : "",
     title: typeof payload.title === "string" ? payload.title : (card.before?.title ?? ""),
     start: toLocalInput(payload.start ?? card.before?.start),
     end: toLocalInput(payload.end ?? card.before?.end),
@@ -73,6 +74,7 @@ export function ActionCard({ card, now, onApprove, onCancel, onDismiss }: Action
     if (card.kind === "email_send") {
       return { ...payload, to: splitAddresses(draft.to), cc: splitAddresses(draft.cc), subject: draft.subject, body: draft.body };
     }
+    if (card.kind === "chat_send") return { ...payload, text: draft.text };
     const start = fromLocalInput(draft.start);
     const end = fromLocalInput(draft.end);
     if (!start || !end) return null;
@@ -80,6 +82,11 @@ export function ActionCard({ card, now, onApprove, onCancel, onDismiss }: Action
   };
 
   const isEmail = card.kind === "email_send";
+  const isChat = card.kind === "chat_send";
+  /** Email and Google Chat: a message to people — click to send, then 30 s with Undo. */
+  const isMessage = isEmail || isChat;
+  const chatTo = (payload.to ?? {}) as { kind?: unknown; email?: unknown; name?: unknown };
+  const chatRecipient = chatTo.kind === "space" ? `space “${String(chatTo.name ?? "")}”` : String(chatTo.email ?? "");
   const isTool = card.kind === "mcp_call";
   const canEdit = card.kind !== "calendar_cancel" && !isTool;
   const secondsLeft = card.executeAt ? Math.max(0, Math.ceil((new Date(card.executeAt).getTime() - now) / 1000)) : 0;
@@ -89,6 +96,7 @@ export function ActionCard({ card, now, onApprove, onCancel, onDismiss }: Action
     calendar_update: "📅 Change an event",
     calendar_cancel: "📅 Cancel an event",
     mcp_call: `🔌 ${String(payload.connectionName ?? "Connection")}`,
+    chat_send: "💬 Google Chat",
   }[card.kind];
 
   return (
@@ -98,7 +106,7 @@ export function ActionCard({ card, now, onApprove, onCancel, onDismiss }: Action
         <span className="action-card-state">
           {card.status === "pending" && "needs your OK"}
           {card.status === "sending" && `sending in ${secondsLeft} s`}
-          {card.status === "done" && (isEmail ? "sent ✓" : "done ✓")}
+          {card.status === "done" && (isMessage ? "sent ✓" : "done ✓")}
           {card.status === "cancelled" && "cancelled"}
           {card.status === "failed" && "didn't go through"}
         </span>
@@ -117,7 +125,14 @@ export function ActionCard({ card, now, onApprove, onCancel, onDismiss }: Action
         </div>
       ) : editing ? (
         <div className="action-card-edit">
-          {isEmail ? (
+          {isChat ? (
+            <>
+              <div>
+                <b>To:</b> {chatRecipient}
+              </div>
+              <textarea aria-label="Message text" rows={4} value={draft.text} onChange={(e) => setDraft({ ...draft, text: e.target.value })} />
+            </>
+          ) : isEmail ? (
             <>
               <label>
                 To <input aria-label="To" value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} />
@@ -143,6 +158,13 @@ export function ActionCard({ card, now, onApprove, onCancel, onDismiss }: Action
               </label>
             </>
           )}
+        </div>
+      ) : isChat ? (
+        <div className="action-card-body">
+          <div>
+            <b>To:</b> {chatRecipient}
+          </div>
+          <div className="action-card-text">{String(payload.text ?? "")}</div>
         </div>
       ) : isEmail ? (
         <div className="action-card-body">
@@ -193,10 +215,10 @@ export function ActionCard({ card, now, onApprove, onCancel, onDismiss }: Action
 
       {card.newRecipients.length > 0 && card.status === "pending" && (
         <div className="action-card-warning" role="note">
-          ⚠ First time emailing {card.newRecipients.join(", ")} — check the address.
+          ⚠ {isChat ? "First Google Chat with" : "First time emailing"} {card.newRecipients.join(", ")} — check the address.
         </div>
       )}
-      {!isEmail && !isTool && card.status === "pending" && (
+      {!isMessage && !isTool && card.status === "pending" && (
         <div className="action-card-note">
           {card.notifies.length > 0
             ? `${card.notifies.join(", ")} will get an email from Google about this.`
@@ -213,7 +235,7 @@ export function ActionCard({ card, now, onApprove, onCancel, onDismiss }: Action
         {card.status === "pending" && !editing && (
           <>
             <button type="button" className="button button-done" disabled={busy} onClick={() => void run(() => onApprove(card.id))}>
-              {isEmail ? "Approve & send" : isTool ? "Allow once" : "Approve"}
+              {isMessage ? "Approve & send" : isTool ? "Allow once" : "Approve"}
             </button>
             {isTool && payload.readOnly === true && (
               <button
@@ -251,7 +273,7 @@ export function ActionCard({ card, now, onApprove, onCancel, onDismiss }: Action
                 void run(() => onApprove(card.id, edited));
               }}
             >
-              {isEmail ? "Save & send" : "Save & approve"}
+              {isMessage ? "Save & send" : "Save & approve"}
             </button>
             <button type="button" className="button button-snooze" disabled={busy} onClick={() => setEditing(false)}>
               Back

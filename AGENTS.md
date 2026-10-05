@@ -22,7 +22,7 @@ Build a simple, production-minded AI executive agent in three phases. Do not exp
 - Prefer one well-tested implementation over configurable abstractions.
 - Avoid generic frameworks, plugin systems, or dynamic registries unless a real requirement exists.
 - Do not build multiple autonomous agents in Phase 1.
-- Read-only Google scopes only in Phase 1. Since ADR-006 M7 (Zara), the app also requests `gmail.send`, `calendar.events` and `drive.readonly`; every use of a write scope goes through an approval card the user clicks (email: always a click, then a 30 s undo window). The model can only propose actions, never execute them.
+- Read-only Google scopes only in Phase 1. Since ADR-006 M7 (Zara), the app also requests `gmail.send`, `calendar.events` and `drive.readonly`, and since ADR-006 §8a `chat.messages.create`, `chat.messages.readonly`, `chat.spaces.readonly`, `chat.spaces.create` and `directory.readonly` (Google Chat); every use of a write scope goes through an approval card the user clicks (email and Google Chat messages: always a click, then a 30 s undo window). The model can only propose actions, never execute them.
 
 ## Code quality
 - TypeScript strict mode.

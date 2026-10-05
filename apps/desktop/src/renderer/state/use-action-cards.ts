@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type ActionKind = "email_send" | "calendar_create" | "calendar_update" | "calendar_cancel" | "mcp_call";
+export type ActionKind = "email_send" | "calendar_create" | "calendar_update" | "calendar_cancel" | "mcp_call" | "chat_send";
 export type ActionStatus = "pending" | "sending" | "done" | "cancelled" | "failed";
 
 export interface ActionCardData {
@@ -19,7 +19,7 @@ export interface ActionCardData {
   voiceApprovable: boolean;
 }
 
-const KINDS: ActionKind[] = ["email_send", "calendar_create", "calendar_update", "calendar_cancel", "mcp_call"];
+const KINDS: ActionKind[] = ["email_send", "calendar_create", "calendar_update", "calendar_cancel", "mcp_call", "chat_send"];
 const STATUSES: ActionStatus[] = ["pending", "sending", "done", "cancelled", "failed"];
 
 export function parseActionCard(raw: unknown): ActionCardData | null {

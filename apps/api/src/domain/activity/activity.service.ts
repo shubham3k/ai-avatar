@@ -24,6 +24,8 @@ export type ActivityKind =
   | "note_created"
   // M7: external actions the user approved (email can't be unsent — its undo is the 30 s window on the card).
   | "email_sent"
+  // §8a: a Google Chat message the user approved (no undo after sending — same as email).
+  | "chat_sent"
   | "calendar_created"
   | "calendar_updated"
   | "calendar_cancelled"
@@ -39,6 +41,7 @@ const noUndo = z.object({}).strict();
 
 const undoSchemas = {
   email_sent: noUndo,
+  chat_sent: noUndo,
   action_cancelled: noUndo,
   mcp_call: noUndo,
   routine_run: noUndo,
@@ -143,6 +146,7 @@ export function createActivityService(dependencies?: { prisma?: PrismaClient; ca
         return;
       }
       case "email_sent":
+      case "chat_sent":
       case "action_cancelled":
       case "mcp_call":
       case "routine_run":

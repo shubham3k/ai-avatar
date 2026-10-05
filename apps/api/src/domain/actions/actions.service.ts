@@ -19,13 +19,18 @@ import {
   type CalendarCancelPayload,
   type CalendarCreatePayload,
   type CalendarUpdatePayload,
+  type ChatSendPayload,
   type EmailPayload,
   type EventSnapshot,
   type McpCallPayload,
 } from "./action-payloads.js";
 import { getConnectionsService, type ConnectionsService } from "../mcp/connections.service.js";
+import { getGoogleChatService, type GoogleChatService } from "../google-chat/google-chat.service.js";
 
-/** ADR-006 §8: every email waits this long after Approve, with Undo. */
+/** Messages to other people: a click to approve (never chat/voice), then 30 s with Undo. */
+const SENDS_MESSAGE = new Set<ActionKind>(["email_send", "chat_send"]);
+
+/** ADR-006 §8: every email (and §8a Google Chat message) waits this long after Approve, with Undo. */
 export const SEND_DELAY_MS = 30_000;
 /** A send that should have happened this long ago didn't (the app was closed) — ask again rather than send late. */
 const STALE_SEND_MS = 2 * 60_000;
@@ -45,7 +50,7 @@ export interface ActionDto {
   /** M8: what an approved connection tool returned (shown on the card, handed back to Zara). */
   result: string | null;
   createdAt: string;
-  /** Email: sending needs a click. Own-calendar-only changes may also be approved in chat. */
+  /** Email / Google Chat: sending needs a click. Own-calendar-only changes may also be approved in chat. */
   voiceApprovable: boolean;
 }
 
@@ -73,7 +78,7 @@ export function toActionDto(row: PendingAction): ActionDto {
     error: row.error,
     result: row.result,
     createdAt: row.createdAt.toISOString(),
-    voiceApprovable: kind !== "email_send" && kind !== "mcp_call" && notifies.length === 0,
+    voiceApprovable: !SENDS_MESSAGE.has(kind) && kind !== "mcp_call" && notifies.length === 0,
   };
 }
 
@@ -101,6 +106,7 @@ export function createActionsService(dependencies?: {
   activity?: ActivityService;
   schedule?: (run: () => void, ms: number) => void;
   mcp?: ConnectionsService;
+  chat?: GoogleChatService;
 }) {
   const prisma = dependencies?.prisma ?? defaultPrisma;
   const connection = dependencies?.connection ?? createGoogleConnectionService();
@@ -109,6 +115,7 @@ export function createActionsService(dependencies?: {
   const activity = dependencies?.activity ?? createActivityService({ prisma });
   const events = createCalendarEventsRepository(prisma);
   const mcp = () => dependencies?.mcp ?? getConnectionsService();
+  const chat = () => dependencies?.chat ?? getGoogleChatService();
   const schedule =
     dependencies?.schedule ??
     ((run: () => void, ms: number) => {
@@ -172,6 +179,20 @@ export function createActionsService(dependencies?: {
         const output = await mcp().call(row.userId, call.connectionId, call.tool, call.args);
         await activity.record(row.userId, { kind: "mcp_call", summary: `Used ${call.connectionName} · ${call.tool} (you approved it)` });
         return prisma.pendingAction.update({ where: { id: row.id }, data: { status: "done", executedAt: new Date(), result: output, error: null } });
+      } catch (err) {
+        return prisma.pendingAction.update({ where: { id: row.id }, data: { status: "failed", error: friendlyError(err) } });
+      }
+    }
+    if (kind === "chat_send") {
+      const message = parsed.value as ChatSendPayload;
+      try {
+        const sent = await chat().send(row.userId, message.to, message.text);
+        const edited = row.original !== null && row.original !== row.payload;
+        await activity.record(row.userId, {
+          kind: "chat_sent",
+          summary: `Sent a ${describeAction(kind, message)}${edited ? " (you edited Zara's draft)" : ""}`,
+        });
+        return prisma.pendingAction.update({ where: { id: row.id }, data: { status: "done", executedAt: new Date(), resultId: sent.name, error: null } });
       } catch (err) {
         return prisma.pendingAction.update({ where: { id: row.id }, data: { status: "failed", error: friendlyError(err) } });
       }
@@ -318,6 +339,14 @@ export function createActionsService(dependencies?: {
         recipients = await newRecipients(userId, notifies);
       } else if (kind === "mcp_call") {
         notifies = [];
+      } else if (kind === "chat_send") {
+        const message = parsed.value as ChatSendPayload;
+        if (message.to.kind === "person") {
+          notifies = [message.to.email];
+          recipients = (await chat().isNewContact(userId, message.to.email)) === true ? [message.to.email] : [];
+        } else {
+          notifies = [message.to.name];
+        }
       } else {
         const target = await eventSnapshot(userId, (parsed.value as CalendarUpdatePayload | CalendarCancelPayload).eventId);
         before = target.snapshot;
@@ -374,7 +403,13 @@ export function createActionsService(dependencies?: {
       const kind = row.kind as ActionKind;
       const dto = toActionDto(row);
       if (options.via === "chat" && !dto.voiceApprovable) {
-        throw conflictError(kind === "email_send" ? "Emails are only sent after you click Approve on the card." : "This change notifies other people — please approve it on the card.");
+        throw conflictError(
+          kind === "email_send"
+            ? "Emails are only sent after you click Approve on the card."
+            : kind === "chat_send"
+              ? "Chat messages are only sent after you click Approve on the card."
+              : "This change notifies other people — please approve it on the card.",
+        );
       }
       let payload = row.payload;
       if (kind === "mcp_call" && options.payload !== undefined) throw validationError("Connection tool calls can't be edited — cancel and ask Zara again.");
@@ -386,7 +421,15 @@ export function createActionsService(dependencies?: {
       if (options.payload !== undefined) {
         const parsed = parsePayload(kind, options.payload);
         if (!parsed.ok) throw validationError(parsed.message);
+        if (kind === "chat_send" && JSON.stringify((parsed.value as ChatSendPayload).to) !== JSON.stringify((JSON.parse(row.payload) as ChatSendPayload).to)) {
+          throw validationError("The recipient of a chat message can't be changed — cancel and ask Zara again.");
+        }
         payload = JSON.stringify(parsed.value);
+        if (kind === "chat_send") {
+          const before = (JSON.parse(row.original ?? row.payload) as ChatSendPayload).text;
+          const after = (parsed.value as ChatSendPayload).text;
+          if (before !== after) await prisma.draftEdit.create({ data: { userId, before: before.slice(0, 2000), after: after.slice(0, 2000) } });
+        }
         if (kind === "email_send") {
           const before = (JSON.parse(row.original ?? row.payload) as EmailPayload).body;
           const after = (parsed.value as EmailPayload).body;
@@ -398,7 +441,7 @@ export function createActionsService(dependencies?: {
           });
         }
       }
-      if (kind === "email_send") {
+      if (SENDS_MESSAGE.has(kind)) {
         const executeAt = new Date(now.getTime() + SEND_DELAY_MS);
         const updated = await prisma.pendingAction.update({ where: { id }, data: { payload, status: "sending", executeAt, error: null } });
         schedule(() => void executeDue(), SEND_DELAY_MS + 250);

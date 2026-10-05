@@ -124,3 +124,43 @@ describe("useActionCards", () => {
     expect(result.current.cards.map((card) => card.id)).toEqual(["a1"]);
   });
 });
+
+describe("Google Chat card (ADR-006 §8a)", () => {
+  const chat: ActionCardData = {
+    ...email,
+    id: "c1",
+    kind: "chat_send",
+    payload: { to: { kind: "person", email: "new@digipanda.example" }, text: "Deck is ready 👍" },
+    newRecipients: ["new@digipanda.example"],
+    notifies: ["new@digipanda.example"],
+  };
+
+  it("shows the recipient and exact text, warns about a first chat, and needs a click to send", async () => {
+    const { onApprove } = renderCard(chat);
+    const card = screen.getByTestId("action-card");
+    expect(card).toHaveTextContent("💬 Google Chat");
+    expect(card).toHaveTextContent("To: new@digipanda.example");
+    expect(card).toHaveTextContent("Deck is ready 👍");
+    expect(screen.getByRole("note")).toHaveTextContent("First Google Chat with new@digipanda.example");
+    expect(card).not.toHaveTextContent("nobody is notified");
+    fireEvent.click(screen.getByRole("button", { name: "Approve & send" }));
+    await waitFor(() => expect(onApprove).toHaveBeenCalledWith("c1"));
+  });
+
+  it("edits only the text for a space message and sends the edited version", async () => {
+    const { onApprove } = renderCard({ ...chat, payload: { to: { kind: "space", space: "spaces/DEV", name: "Dev team" }, text: "Standup at 10" }, newRecipients: [] });
+    expect(screen.getByTestId("action-card")).toHaveTextContent("To: space “Dev team”");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.queryByLabelText("To")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Message text"), { target: { value: "Standup at 10:30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save & send" }));
+    await waitFor(() =>
+      expect(onApprove).toHaveBeenCalledWith("c1", { to: { kind: "space", space: "spaces/DEV", name: "Dev team" }, text: "Standup at 10:30" }),
+    );
+  });
+
+  it("says sent ✓ once it went out", () => {
+    renderCard({ ...chat, status: "done" });
+    expect(screen.getByText("sent ✓")).toBeInTheDocument();
+  });
+});

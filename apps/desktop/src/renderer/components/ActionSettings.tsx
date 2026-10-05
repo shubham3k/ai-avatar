@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 interface ActionSettingsValue {
   writingStyle: string;
-  permissions: { connected: boolean; sendEmail: boolean; editCalendar: boolean; readDrive: boolean };
+  permissions: { connected: boolean; sendEmail: boolean; editCalendar: boolean; readDrive: boolean; googleChat?: boolean };
 }
 
 function readResult(raw: unknown): { ok: true; value: unknown } | { ok: false; message: string } {
@@ -53,7 +53,7 @@ export function ActionSettings() {
   };
 
   const permissions = settings?.permissions;
-  const missing = permissions && (!permissions.sendEmail || !permissions.editCalendar);
+  const missing = permissions && (!permissions.sendEmail || !permissions.editCalendar || !permissions.googleChat);
 
   return (
     <div data-testid="action-settings">
@@ -63,10 +63,10 @@ export function ActionSettings() {
         </div>
       )}
       <div className="settings-section">
-        <div className="settings-label">Email and calendar actions</div>
+        <div className="settings-label">Email, Google Chat and calendar actions</div>
         <div className="settings-hint">
-          Zara can draft and send email and add, move or cancel events — but only after you approve each one on its card. Emails always
-          need your click and wait 30 seconds with Undo.
+          Zara can draft and send email and Google Chat messages and add, move or cancel events — but only after you approve each one on its
+          card. Emails and chat messages always need your click and wait 30 seconds with Undo. She reads a Google Chat only when you ask.
         </div>
         {!permissions ? (
           <div className="settings-hint">Loading…</div>
@@ -75,15 +75,23 @@ export function ActionSettings() {
         ) : missing ? (
           <>
             <div className="settings-status" role="status">
-              Google hasn't given Zara permission to {[!permissions.sendEmail && "send email", !permissions.editCalendar && "change your calendar"].filter(Boolean).join(" or ")} yet.
+              Google hasn't given Zara permission to{" "}
+              {[!permissions.sendEmail && "send email", !permissions.editCalendar && "change your calendar", !permissions.googleChat && "use Google Chat"]
+                .filter(Boolean)
+                .join(" or ")}{" "}
+              yet.
             </div>
             <button type="button" className="button button-done" onClick={() => void window.desktopAPI?.connectGoogle()}>
               Reconnect Google to allow it
             </button>
-            <div className="settings-hint">Google will ask you to approve: send email, see and edit calendar events, and read Drive files.</div>
+            <div className="settings-hint">
+              Google will ask you to approve: send email, see and edit calendar events, read Drive files, read and send Google Chat messages,
+              and see your company directory (to show who wrote in a chat space). Google Chat needs a Workspace (company) account and the
+              Google Chat API enabled in your Google Cloud project.
+            </div>
           </>
         ) : (
-          <div className="settings-status settings-status-ok">Allowed ✓ — send email and edit calendar events</div>
+          <div className="settings-status settings-status-ok">Allowed ✓ — send email, Google Chat, and edit calendar events</div>
         )}
       </div>
 

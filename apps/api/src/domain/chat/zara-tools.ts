@@ -12,6 +12,8 @@ import type { RecallService } from "../recall/recall.service.js";
 import type { ActionDto, ActionsService } from "../actions/actions.service.js";
 import { ACTION_TOOLS } from "./action-tools.js";
 import { ROUTINE_TOOLS } from "./routine-tools.js";
+import { GOOGLE_CHAT_TOOLS } from "./google-chat-tools.js";
+import type { GoogleChatService } from "../google-chat/google-chat.service.js";
 import type { RoutinesService } from "../routines/routines.service.js";
 
 /**
@@ -54,6 +56,8 @@ export interface ToolContext {
   conversationId?: string | null;
   /** M9: the user's routines. */
   routines?: RoutinesService;
+  /** §8a: Google Chat (read when asked; send via approval cards). */
+  googleChat?: GoogleChatService;
 }
 
 export interface ZaraTool<Schema extends z.ZodTypeAny = z.ZodTypeAny> {
@@ -613,6 +617,7 @@ export const ZARA_TOOLS: readonly ZaraTool[] = [
   createNote,
   getPersonProfile,
   ...ACTION_TOOLS,
+  ...GOOGLE_CHAT_TOOLS,
   ...ROUTINE_TOOLS,
 ];
 

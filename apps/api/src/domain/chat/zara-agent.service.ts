@@ -23,6 +23,7 @@ import { getActionsService, type ActionDto, type ActionsService } from "../actio
 import { getConnectionsService, type ChatConnectionTool, type ConnectionsService } from "../mcp/connections.service.js";
 import { getRoutinesService, type RoutinesService } from "../routines/routines.service.js";
 import { NOT_IN_ROUTINE_RUNS } from "./routine-tools.js";
+import { getGoogleChatService, type GoogleChatService } from "../google-chat/google-chat.service.js";
 import { shortDayLabel } from "../proactive/local-time.js";
 import { isExplicitRememberRequest } from "./remember-intent.js";
 import { buildZaraSystemPrompt } from "./zara-prompt.js";
@@ -179,6 +180,7 @@ export function createZaraAgentService(dependencies?: {
   actions?: ActionsService;
   connections?: ConnectionsService;
   routines?: RoutinesService;
+  googleChat?: GoogleChatService;
 }) {
   const prisma = dependencies?.prisma ?? defaultPrisma;
   // Shared per process: one search model and one indexing pass at a time.
@@ -187,6 +189,7 @@ export function createZaraAgentService(dependencies?: {
   const actions = dependencies?.actions ?? getActionsService();
   const connections = dependencies?.connections ?? getConnectionsService();
   const routines = dependencies?.routines ?? getRoutinesService();
+  const googleChat = dependencies?.googleChat ?? getGoogleChatService();
   const memory = dependencies?.memory ?? createMemoryService({ prisma });
   const activity = dependencies?.activity ?? createActivityService({ prisma });
   const provider = dependencies?.provider ?? createDefaultLlmProvider();
@@ -280,6 +283,7 @@ export function createZaraAgentService(dependencies?: {
         onAction: (action) => emit({ type: "action", action }),
         conversationId: conversationId ?? null,
         routines,
+        googleChat,
         // Logged with whichever provider was answering when Zara acted.
         recordActivity: (entry) => activity.record(userId, { ...entry, provider: answeredBy }),
       };

@@ -6,7 +6,7 @@ import { z } from "zod";
  * it's executed — the payload is the single source of truth for what
  * leaves the PC.
  */
-export type ActionKind = "email_send" | "calendar_create" | "calendar_update" | "calendar_cancel" | "mcp_call";
+export type ActionKind = "email_send" | "calendar_create" | "calendar_update" | "calendar_cancel" | "mcp_call" | "chat_send";
 export type ActionStatus = "pending" | "sending" | "done" | "cancelled" | "failed";
 
 const address = z.string().trim().toLowerCase().email().max(254);
@@ -65,12 +65,22 @@ export const mcpCallPayloadSchema = z.object({
   destructive: z.boolean(),
 });
 
+/** ADR-006 §8a: a Google Chat message to a person (1:1) or one of the user's spaces. Same rules as email. */
+export const chatSendPayloadSchema = z.object({
+  to: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("person"), email: address }),
+    z.object({ kind: z.literal("space"), space: z.string().regex(/^spaces\/[A-Za-z0-9_-]{1,100}$/, "Not a Google Chat space."), name: z.string().trim().min(1).max(200) }),
+  ]),
+  text: z.string().trim().min(1).max(4000),
+});
+
 export const PAYLOAD_SCHEMAS = {
   email_send: emailPayloadSchema,
   calendar_create: calendarCreatePayloadSchema,
   calendar_update: calendarUpdatePayloadSchema,
   calendar_cancel: calendarCancelPayloadSchema,
   mcp_call: mcpCallPayloadSchema,
+  chat_send: chatSendPayloadSchema,
 } as const;
 
 export type EmailPayload = z.infer<typeof emailPayloadSchema>;
@@ -78,6 +88,12 @@ export type CalendarCreatePayload = z.infer<typeof calendarCreatePayloadSchema>;
 export type CalendarUpdatePayload = z.infer<typeof calendarUpdatePayloadSchema>;
 export type CalendarCancelPayload = z.infer<typeof calendarCancelPayloadSchema>;
 export type McpCallPayload = z.infer<typeof mcpCallPayloadSchema>;
+export type ChatSendPayload = z.infer<typeof chatSendPayloadSchema>;
+
+/** "Rahul (rahul@x.com)" style label for a chat recipient. */
+export function chatRecipientLabel(payload: ChatSendPayload): string {
+  return payload.to.kind === "person" ? payload.to.email : `the space "${payload.to.name}"`;
+}
 
 /** The event as it was before an update/cancel — shown as "before → after" and used by Undo. */
 export interface EventSnapshot {
@@ -115,5 +131,7 @@ export function describeAction(kind: ActionKind, payload: unknown): string {
       return `cancelling "${(payload as CalendarCancelPayload).title}"`;
     case "mcp_call":
       return `${(payload as McpCallPayload).connectionName} · ${(payload as McpCallPayload).tool}`;
+    case "chat_send":
+      return `Google Chat message to ${chatRecipientLabel(payload as ChatSendPayload)}`;
   }
 }
