@@ -1,4 +1,6 @@
 interface DesktopApiBridge {
+  /** ADR-007: the OS ("darwin" on a Mac). Optional so older test doubles still type-check. */
+  platform?: string;
   fetchInbox(): Promise<unknown>;
   markDone(interventionId: string): Promise<unknown>;
   snooze(interventionId: string, minutes: number): Promise<unknown>;

@@ -12,6 +12,7 @@ import {
   safeStorage,
   session,
   shell,
+  systemPreferences,
   Tray,
 } from "electron";
 import { loadConfig } from "./config.js";
@@ -20,7 +21,8 @@ import { resolveApiRoot } from "./api-location.js";
 import { startEmbeddedApiServer, type EmbeddedApiServer } from "./api-server.js";
 import { ensureEncryptionKey, loadUserConfig, saveUserConfig } from "./app-config.js";
 import { formatClockTime } from "./format-time.js";
-import { createHotkeyManager, DEFAULT_CHAT_HOTKEY, type HotkeyManager } from "./hotkey.js";
+import { createHotkeyManager, defaultChatHotkey, type HotkeyManager } from "./hotkey.js";
+import { macToolPath } from "./mac-path.js";
 import { createFocusMonitor, type FocusMonitor } from "./focus-monitor.js";
 import { createProactiveScheduler, type ProactiveScheduler } from "./proactive-scheduler.js";
 import { runMigrations } from "./migrate.js";
@@ -55,7 +57,17 @@ const pauseState = createPauseState();
 let googleAuthError = false;
 let lastCheckedAt: number | null = null;
 
+const isMac = process.platform === "darwin";
+
 app.whenReady().then(async () => {
+  if (isMac) {
+    // ADR-007: Finder-launched apps get a minimal PATH — add Homebrew/nvm so
+    // `npx` connections work; and Zara is a menu-bar app, not a Dock app
+    // (LSUIElement does this in the packaged app; this covers dev).
+    process.env.PATH = macToolPath(process.env.PATH, app.getPath("home"));
+    app.dock?.hide();
+  }
+
   // Electron denies media (mic/camera) permission requests by default —
   // without this, getUserMedia() in the renderer (voice reminders) rejects
   // silently with no OS-level prompt at all, which looks identical to "the
@@ -64,8 +76,13 @@ app.whenReady().then(async () => {
   // Settings > Privacy > Microphone) is a separate, unavoidable gate this
   // can't do anything about — getUserMedia still rejects if that's off,
   // and the renderer needs to show a clear error for that case too.
+  // On macOS the OS gate is a one-time prompt (needs NSMicrophoneUsageDescription
+  // in Info.plist and the audio-input entitlement — ADR-007); ask for it here so
+  // the first recording triggers it rather than failing silently.
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === "media");
+    if (permission !== "media") return callback(false);
+    if (!isMac) return callback(true);
+    systemPreferences.askForMediaAccess("microphone").then(callback, () => callback(false));
   });
 
   const config = loadConfig();
@@ -214,7 +231,7 @@ app.whenReady().then(async () => {
   // when it's already open).
   hotkeys = createHotkeyManager({
     globalShortcut,
-    initial: userConfig.chatHotkey ?? DEFAULT_CHAT_HOTKEY,
+    initial: userConfig.chatHotkey ?? defaultChatHotkey(),
     onPress: () => {
       const win = mainWindow;
       if (!win || win.isDestroyed()) return;
@@ -345,11 +362,16 @@ app.whenReady().then(async () => {
     );
   }
 
-  tray = new Tray(nativeImage.createFromDataURL(TRAY_ICON_DATA_URL));
+  const trayImage = nativeImage.createFromDataURL(TRAY_ICON_DATA_URL);
+  // ADR-007: a menu-bar icon on macOS — menu-bar sized, and a template image
+  // so macOS draws it black or white to match the menu bar.
+  const menuBarImage = isMac ? trayImage.resize({ width: 16, height: 16 }) : trayImage;
+  if (isMac) menuBarImage.setTemplateImage(true);
+  tray = new Tray(menuBarImage);
   refreshTray();
   // Windows convention: left-click on a tray icon opens its menu too, not
-  // just right-click.
-  tray.on("click", () => tray?.popUpContextMenu());
+  // just right-click. (macOS already opens the menu on click.)
+  if (!isMac) tray.on("click", () => tray?.popUpContextMenu());
 
   // Continuous sync (replaces having to click "Check now" yourself): only
   // meaningful once the embedded API actually started. Runs regardless of

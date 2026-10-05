@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { ProactiveSettingsDto } from "@ai-agent/shared";
+import { isMacDesktop } from "../lib/platform";
 
 type Settings = ProactiveSettingsDto;
 
@@ -225,6 +226,11 @@ export function ProactiveSettings({ onShowBriefing }: { onShowBriefing?: ((brief
           checked={settings.holdDuringFocus}
           onChange={(value) => void save({ holdDuringFocus: value })}
         />
+        {isMacDesktop() && (
+          <div className="settings-hint" data-testid="mac-focus-note">
+            On a Mac, Zara can't tell yet when you're presenting or on a call, so pop-ups always show. Quiet hours still work.
+          </div>
+        )}
         <Toggle
           label="Quiet hours"
           checked={settings.quietHoursEnabled}

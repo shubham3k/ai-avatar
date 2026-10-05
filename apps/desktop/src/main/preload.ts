@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 export interface DesktopApiBridge {
+  /** ADR-007: the OS ("darwin" on a Mac), for platform-specific wording. */
+  platform: string;
   fetchInbox(): Promise<unknown>;
   markDone(interventionId: string): Promise<unknown>;
   snooze(interventionId: string, minutes: number): Promise<unknown>;
@@ -150,6 +152,7 @@ const bridge: DesktopApiBridge = {
   activityClear: () => ipcRenderer.invoke("activity:clear"),
   chatSpeak: (text, voice) => ipcRenderer.invoke("chat:speak", text, voice),
   saveChatHotkey: (accelerator) => ipcRenderer.invoke("settings:save-hotkey", accelerator),
+  platform: process.platform,
   onHotkey: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("zara:hotkey", listener);

@@ -37,6 +37,21 @@ describe("acceleratorFromKeyEvent", () => {
     expect(acceleratorFromKeyEvent({ code: "F9", ctrlKey: true, altKey: false, shiftKey: false })).toBe("Ctrl+F9");
     expect(acceleratorFromKeyEvent({ code: "ShiftLeft", ctrlKey: false, altKey: false, shiftKey: true })).toBeNull();
   });
+
+  it("puts Cmd first on a Mac (ADR-007)", () => {
+    expect(acceleratorFromKeyEvent({ code: "Space", metaKey: true, ctrlKey: false, altKey: false, shiftKey: true })).toBe("Cmd+Shift+Space");
+  });
+});
+
+describe("Settings → Voice on a Mac (ADR-007)", () => {
+  it("says Mac voice and Cmd instead of Windows wording", async () => {
+    installBridge({ platform: "darwin", getSettings: vi.fn().mockResolvedValue({ chatHotkey: "Cmd+Shift+Space" }) });
+    render(<VoiceSettings />);
+    expect(await screen.findByDisplayValue("Cmd+Shift+Space")).toBeInTheDocument();
+    expect(screen.getByText(/needs Cmd, Control, or Option/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Mac voice/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Windows voice/)).toBeNull();
+  });
 });
 
 describe("Settings → Voice (ADR-006 M4)", () => {

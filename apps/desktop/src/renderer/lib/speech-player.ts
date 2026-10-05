@@ -1,3 +1,4 @@
+import { isMacDesktop } from "./platform";
 import type { VoiceEngine } from "./preferences";
 
 /** Where audio actually comes from and goes to — browser glue lives in speech-output.ts. */
@@ -68,7 +69,7 @@ export function createSpeaker(options: {
         if (!noticeShown) {
           noticeShown = true;
           const reason = err instanceof Error && err.message ? err.message : "OpenAI's voice isn't available.";
-          options.onNotice?.(`${reason} Using a Windows voice instead.`);
+          options.onNotice?.(`${reason} Using a ${isMacDesktop() ? "Mac" : "Windows"} voice instead.`);
         }
       }
     }

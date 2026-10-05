@@ -31,6 +31,7 @@ const MARGIN = 24;
 export function createOverlayWindow(options: {
   isDev: boolean;
   devServerUrl: string;
+  platform?: NodeJS.Platform;
 }): BrowserWindow {
   const win = new BrowserWindow({
     width: WINDOW_WIDTH,
@@ -53,6 +54,13 @@ export function createOverlayWindow(options: {
       sandbox: false,
     },
   });
+
+  // ADR-007: on macOS, stay visible on every Space and over full-screen
+  // apps (Windows' alwaysOnTop already covers its equivalent).
+  if ((options.platform ?? process.platform) === "darwin") {
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    win.setAlwaysOnTop(true, "floating");
+  }
 
   const { workArea } = screen.getPrimaryDisplay();
   win.setPosition(

@@ -27,7 +27,14 @@ const { join } = require("node:path");
 
 module.exports = async function afterPack(context) {
   const source = join(context.packager.projectDir, "resources", "api");
-  const destination = join(context.appOutDir, "resources", "api");
+  // ADR-007: on macOS the resources live inside the bundle
+  // (<App>.app/Contents/Resources — Electron's process.resourcesPath there),
+  // and this runs before electron-builder signs the app, so the copied
+  // native modules get signed with it.
+  const destination =
+    context.electronPlatformName === "darwin"
+      ? join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents", "Resources", "api")
+      : join(context.appOutDir, "resources", "api");
 
   if (!existsSync(source)) {
     throw new Error(`afterPack: expected ${source} to exist — run "npm run prepare:api" first.`);

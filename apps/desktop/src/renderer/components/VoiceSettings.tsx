@@ -9,15 +9,23 @@ import {
 } from "../lib/preferences";
 import { createBrowserSpeechOutput, listLocalVoices } from "../lib/speech-output";
 import { createSpeaker, type Speaker } from "../lib/speech-player";
+import { isMacDesktop } from "../lib/platform";
 
 /** English + Hinglish, so the preview shows how she handles both. */
 export const VOICE_PREVIEW_TEXT = "Hi, I'm Zara. Aaj aapka din kaisa chal raha hai?";
 
-const ENGINE_OPTIONS: { id: VoiceEngine; label: string; hint: string }[] = [
-  { id: "openai", label: "OpenAI voice", hint: "Most natural; a fraction of a cent per reply." },
-  { id: "windows", label: "Windows voice", hint: "Free and offline; sounds more robotic." },
-  { id: "off", label: "Off", hint: "Zara only writes." },
-];
+/** The computer's own voices: Windows', or the Mac's (ADR-007) — stored as "windows" either way. */
+function systemVoiceName(): string {
+  return isMacDesktop() ? "Mac voice" : "Windows voice";
+}
+
+function engineOptions(): { id: VoiceEngine; label: string; hint: string }[] {
+  return [
+    { id: "openai", label: "OpenAI voice", hint: "Most natural; a fraction of a cent per reply." },
+    { id: "windows", label: systemVoiceName(), hint: "Free and offline; sounds more robotic." },
+    { id: "off", label: "Off", hint: "Zara only writes." },
+  ];
+}
 
 const INPUT_OPTIONS: { id: VoiceInputMode; label: string; hint: string }[] = [
   { id: "click", label: "Click to talk", hint: "Click 🎤 (or press the shortcut) to start, again to send." },
@@ -43,8 +51,10 @@ const KEY_NAMES: Record<string, string> = {
   ArrowRight: "Right",
 };
 
-/** A key press → Electron accelerator ("Ctrl+Shift+Space"), or null while only modifiers are held. */
-export function acceleratorFromKeyEvent(event: Pick<KeyboardEvent, "code" | "ctrlKey" | "altKey" | "shiftKey">): string | null {
+/** A key press → Electron accelerator ("Ctrl+Shift+Space", "Cmd+Shift+Space" on a Mac), or null while only modifiers are held. */
+export function acceleratorFromKeyEvent(
+  event: Pick<KeyboardEvent, "code" | "ctrlKey" | "altKey" | "shiftKey"> & { metaKey?: boolean },
+): string | null {
   const { code } = event;
   let key: string | null = null;
   if (/^Key[A-Z]$/.test(code)) key = code.slice(3);
@@ -52,7 +62,7 @@ export function acceleratorFromKeyEvent(event: Pick<KeyboardEvent, "code" | "ctr
   else if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) key = code;
   else key = KEY_NAMES[code] ?? null;
   if (!key) return null;
-  const parts = [event.ctrlKey && "Ctrl", event.altKey && "Alt", event.shiftKey && "Shift"].filter(Boolean);
+  const parts = [event.metaKey && "Cmd", event.ctrlKey && "Ctrl", event.altKey && "Alt", event.shiftKey && "Shift"].filter(Boolean);
   return [...parts, key].join("+");
 }
 
@@ -141,7 +151,7 @@ export function VoiceSettings() {
         </label>
         <div className="settings-hint">
           Works from any app. Press it once to open the chat, again to start talking. Click the box and press a new
-          combination to change it (needs Ctrl or Alt).
+          combination to change it ({isMacDesktop() ? "needs Cmd, Control, or Option" : "needs Ctrl or Alt"}).
         </div>
         <input
           id="zara-hotkey"
@@ -156,7 +166,7 @@ export function VoiceSettings() {
       <div className="settings-section" role="radiogroup" aria-label="Zara's voice">
         <div className="settings-label">Zara's voice</div>
         <div className="settings-hint">She speaks when you speak to her; typed messages get written replies.</div>
-        {ENGINE_OPTIONS.map((option) => (
+        {engineOptions().map((option) => (
           <label key={option.id} className="settings-radio">
             <input
               type="radio"
@@ -194,7 +204,7 @@ export function VoiceSettings() {
         {prefs.engine !== "off" && (
           <>
             <label className="settings-sublabel" htmlFor="windows-voice">
-              {prefs.engine === "windows" ? "Windows voice" : "Windows voice (used if OpenAI's isn't available)"}
+              {prefs.engine === "windows" ? systemVoiceName() : `${systemVoiceName()} (used if OpenAI's isn't available)`}
             </label>
             <select
               id="windows-voice"

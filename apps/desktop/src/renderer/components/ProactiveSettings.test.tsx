@@ -45,6 +45,17 @@ function installBridge(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Settings → Proactive (ADR-006 M5)", () => {
+  it("explains on a Mac that pop-ups can't be held for calls yet (ADR-007), and not on Windows", async () => {
+    installBridge({ platform: "darwin" });
+    const { unmount } = render(<ProactiveSettings />);
+    expect(await screen.findByTestId("mac-focus-note")).toHaveTextContent("pop-ups always show");
+    unmount();
+    installBridge({ platform: "win32" });
+    render(<ProactiveSettings />);
+    await screen.findByText(/Hold pop-ups while I present/);
+    expect(screen.queryByTestId("mac-focus-note")).toBeNull();
+  });
+
   it("shows the defaults and saves each change straight away", async () => {
     const bridge = installBridge();
     render(<ProactiveSettings />);

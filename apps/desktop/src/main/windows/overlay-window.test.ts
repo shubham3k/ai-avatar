@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const loadFile = vi.fn();
 const loadURL = vi.fn();
+const setVisibleOnAllWorkspaces = vi.fn();
+const setAlwaysOnTop = vi.fn();
 
 vi.mock("electron", () => ({
   BrowserWindow: vi.fn().mockImplementation(() => ({
@@ -9,6 +11,8 @@ vi.mock("electron", () => ({
     loadURL,
     setPosition: vi.fn(),
     setIgnoreMouseEvents: vi.fn(),
+    setVisibleOnAllWorkspaces,
+    setAlwaysOnTop,
     once: vi.fn(),
     show: vi.fn(),
   })),
@@ -46,6 +50,17 @@ describe("createOverlayWindow", () => {
 
     expect(loadURL).toHaveBeenCalledWith("http://localhost:5173");
     expect(loadFile).not.toHaveBeenCalled();
+  });
+
+  it("on macOS, stays visible on every Space and over full-screen apps (ADR-007); Windows is unchanged", async () => {
+    const { createOverlayWindow } = await import("./overlay-window.js");
+    createOverlayWindow({ isDev: true, devServerUrl: "http://localhost:5173", platform: "win32" });
+    expect(setVisibleOnAllWorkspaces).not.toHaveBeenCalled();
+    expect(setAlwaysOnTop).not.toHaveBeenCalled();
+
+    createOverlayWindow({ isDev: true, devServerUrl: "http://localhost:5173", platform: "darwin" });
+    expect(setVisibleOnAllWorkspaces).toHaveBeenCalledWith(true, { visibleOnFullScreen: true });
+    expect(setAlwaysOnTop).toHaveBeenCalledWith(true, "floating");
   });
 });
 

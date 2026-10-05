@@ -15,7 +15,8 @@
     "electron:dev": "tsc -p tsconfig.json && node scripts/copy-preload.mjs && concurrently \"vite\" \"wait-on tcp:127.0.0.1:5173 && electron .\"",
     "prepare:api": "node scripts/prepare-api-resources.mjs",
     "package:win:dir": "npm run build && npm run prepare:api && electron-builder --win dir",
-    "package:win": "npm run build && npm run prepare:api && electron-builder --win nsis"
+    "package:win": "npm run build && npm run prepare:api && electron-builder --win nsis",
+    "package:mac": "npm run build && npm run prepare:api && electron-builder --mac dmg"
   },
   "dependencies": {
     "dotenv": "^16.4.0"
@@ -46,7 +47,8 @@
     "appId": "co.digipanda.ai-executive-agent",
     "productName": "AI Executive Agent",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build-resources"
     },
     "files": [
       "dist/main/**/*",
@@ -67,6 +69,26 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ],
+      "identity": "-",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "notarize": false,
+      "entitlements": "build-resources/entitlements.mac.plist",
+      "entitlementsInherit": "build-resources/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Zara listens when you talk to her (click the mic, press the shortcut, or hands-free).",
+        "LSUIElement": true
+      }
+    },
+    "dmg": {
+      "title": "AI Executive Agent",
+      "artifactName": "AI-Executive-Agent-${version}-${arch}.dmg"
     }
   }
 }

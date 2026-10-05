@@ -1,0 +1,68 @@
+# ADR-007: builds the Mac app on GitHub's Mac machines (we have no Mac to
+# build on). Run it by hand: Actions → "Build Mac app" → Run workflow.
+# Each chip builds on its own runner so `npm install` (in
+# prepare-api-resources.mjs) fetches the right native parts — Prisma engine,
+# onnxruntime-node, sharp. No secrets: keys are entered in the app's Settings.
+# Phase 1 is ad-hoc signed only (not notarized) — open it once with
+# right-click → Open.
+name: Build Mac app
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    name: Mac (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15 # Apple Silicon (M1–M4)
+            arch: arm64
+          - runner: macos-15-intel # Intel Macs
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # Uses the pnpm version in package.json's "packageManager".
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared + API
+        run: |
+          pnpm --filter @ai-agent/shared build
+          pnpm --filter @ai-agent/api build
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      # The desktop tests cover the Mac-specific code (hotkey, PATH, window).
+      # The API tests need a local .env.test/database and are run on the dev PC.
+      - name: Desktop tests
+        run: pnpm --filter @ai-agent/desktop test
+
+      - name: Build the app (.dmg)
+        working-directory: apps/desktop
+        env:
+          # No Apple Developer ID yet — ad-hoc signing only (ADR-007).
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run package:mac -- --${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zara-mac-${{ matrix.arch }}
+          path: apps/desktop/release/*.dmg
+          if-no-files-found: error
+          retention-days: 14
