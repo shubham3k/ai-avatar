@@ -1,5 +1,7 @@
 # ADR-007: builds the Mac app on GitHub's Mac machines (we have no Mac to
-# build on). Run it by hand: Actions → "Build Mac app" → Run workflow.
+# build on). Starts by itself on every push to the mac-build branch; can
+# also be run by hand (Actions → "Build Mac app" → Run workflow) once this
+# file is on the default branch — GitHub only shows that button then.
 # Each chip builds on its own runner so `npm install` (in
 # prepare-api-resources.mjs) fetches the right native parts — Prisma engine,
 # onnxruntime-node, sharp. No secrets: keys are entered in the app's Settings.
@@ -8,6 +10,8 @@
 name: Build Mac app
 
 on:
+  push:
+    branches: [mac-build]
   workflow_dispatch:
 
 permissions:
