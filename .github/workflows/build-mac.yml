@@ -41,21 +41,24 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      # Failing steps post their last output lines on the run's summary page
+      # (.github/scripts/report-failure.sh). Install retries once — a
+      # download hiccup failed it once on the Intel runner.
       - name: Install
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile || bash .github/scripts/report-failure.sh "Install" pnpm install --frozen-lockfile
 
       # The Prisma client is generated code (not in git); on the dev PC it was
       # generated once by hand, so a fresh machine has to do it explicitly.
       - name: Generate the Prisma client
-        run: pnpm --filter @ai-agent/api prisma:generate
+        run: bash .github/scripts/report-failure.sh "Generate the Prisma client" pnpm --filter @ai-agent/api prisma:generate
 
       - name: Build shared + API
         run: |
-          pnpm --filter @ai-agent/shared build
-          pnpm --filter @ai-agent/api build
+          bash .github/scripts/report-failure.sh "Build shared" pnpm --filter @ai-agent/shared build
+          bash .github/scripts/report-failure.sh "Build API" pnpm --filter @ai-agent/api build
 
       - name: Typecheck
-        run: pnpm -r typecheck
+        run: bash .github/scripts/report-failure.sh "Typecheck" pnpm -r typecheck
 
       # The desktop tests cover the Mac-specific code (hotkey, PATH, window).
       # The API tests need a local .env.test/database and are run on the dev PC.
@@ -67,7 +70,7 @@ jobs:
         env:
           # No Apple Developer ID yet — ad-hoc signing only (ADR-007).
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npm run package:mac -- --${{ matrix.arch }}
+        run: bash ../../.github/scripts/report-failure.sh "Build the app" npm run package:mac -- --${{ matrix.arch }}
 
       - uses: actions/upload-artifact@v4
         with:
