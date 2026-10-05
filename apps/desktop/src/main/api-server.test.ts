@@ -1,3 +1,4 @@
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { startEmbeddedApiServer } from "./api-server.js";
@@ -5,6 +6,9 @@ import { startEmbeddedApiServer } from "./api-server.js";
 const listen = vi.fn();
 const close = vi.fn().mockResolvedValue(undefined);
 const address = vi.fn();
+
+// An absolute path in this OS's own format (C:\… on Windows, /… on a Mac — ADR-007).
+const API_ROOT = resolve("resources", "api");
 
 const buildApp = vi.fn(() => ({
   listen,
@@ -22,10 +26,10 @@ describe("startEmbeddedApiServer", () => {
     address.mockReturnValue({ port: 54321, address: "127.0.0.1", family: "IPv4" });
     const importApiModule = makeImportApiModule();
 
-    await startEmbeddedApiServer({ apiRoot: "C:\\resources\\api", importApiModule });
+    await startEmbeddedApiServer({ apiRoot: API_ROOT, importApiModule });
 
     const [calledUrl] = importApiModule.mock.calls[0];
-    expect(calledUrl).toBe(pathToFileURL("C:\\resources\\api\\dist\\app.js").href);
+    expect(calledUrl).toBe(pathToFileURL(join(API_ROOT, "dist", "app.js")).href);
   });
 
   it("listens on the fixed default port (4000) — required for Google OAuth's registered redirect URI to match — and resolves the URL from the bound address", async () => {
@@ -33,7 +37,7 @@ describe("startEmbeddedApiServer", () => {
     address.mockReturnValue({ port: 4000, address: "127.0.0.1", family: "IPv4" });
 
     const server = await startEmbeddedApiServer({
-      apiRoot: "C:\\resources\\api",
+      apiRoot: API_ROOT,
       importApiModule: makeImportApiModule(),
     });
 
@@ -46,7 +50,7 @@ describe("startEmbeddedApiServer", () => {
     address.mockReturnValue({ port: 4321, address: "127.0.0.1", family: "IPv4" });
 
     await startEmbeddedApiServer({
-      apiRoot: "C:\\resources\\api",
+      apiRoot: API_ROOT,
       importApiModule: makeImportApiModule(),
       port: 4321,
     });
@@ -59,7 +63,7 @@ describe("startEmbeddedApiServer", () => {
     address.mockReturnValue({ port: 54321, address: "127.0.0.1", family: "IPv4" });
 
     const server = await startEmbeddedApiServer({
-      apiRoot: "C:\\resources\\api",
+      apiRoot: API_ROOT,
       importApiModule: makeImportApiModule(),
     });
     await server.close();
@@ -72,7 +76,7 @@ describe("startEmbeddedApiServer", () => {
     address.mockReturnValue(null);
 
     await expect(
-      startEmbeddedApiServer({ apiRoot: "C:\\resources\\api", importApiModule: makeImportApiModule() }),
+      startEmbeddedApiServer({ apiRoot: API_ROOT, importApiModule: makeImportApiModule() }),
     ).rejects.toThrow(/port/i);
     expect(close).toHaveBeenCalled();
   });
@@ -81,7 +85,7 @@ describe("startEmbeddedApiServer", () => {
     listen.mockRejectedValue(new Error("ENCRYPTION_KEY is not configured"));
 
     await expect(
-      startEmbeddedApiServer({ apiRoot: "C:\\resources\\api", importApiModule: makeImportApiModule() }),
+      startEmbeddedApiServer({ apiRoot: API_ROOT, importApiModule: makeImportApiModule() }),
     ).rejects.toThrow(/ENCRYPTION_KEY/);
   });
 });
