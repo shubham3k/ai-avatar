@@ -22,8 +22,23 @@
  * `prepare-api-resources.mjs`'s plain `npm install`, not pnpm — so a
  * straightforward recursive copy is correct with no symlink concerns.
  */
-const { cpSync, existsSync } = require("node:fs");
+const { cpSync, existsSync, readdirSync, rmSync } = require("node:fs");
 const { join } = require("node:path");
+
+/** Every node_modules/.bin folder under a directory (not following links). */
+function findBinDirs(root) {
+  const found = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const path = join(dir, entry.name);
+      if (entry.name === ".bin" && dir.endsWith("node_modules")) found.push(path);
+      else walk(path);
+    }
+  };
+  walk(root);
+  return found;
+}
 
 module.exports = async function afterPack(context) {
   const source = join(context.packager.projectDir, "resources", "api");
@@ -40,6 +55,15 @@ module.exports = async function afterPack(context) {
     throw new Error(`afterPack: expected ${source} to exist — run "npm run prepare:api" first.`);
   }
 
-  cpSync(source, destination, { recursive: true });
+  // verbatimSymlinks: keep npm's relative links relative — by default cpSync
+  // rewrites them to absolute paths back into resources/api, and macOS
+  // refuses to sign a bundle whose links point outside it ("invalid
+  // destination for symbolic link in bundle", ADR-007).
+  cpSync(source, destination, { recursive: true, verbatimSymlinks: true });
+  if (context.electronPlatformName === "darwin") {
+    // The app runs the Prisma CLI and the MCP server by resolved path, never
+    // through node_modules/.bin, so drop those link folders from the bundle.
+    for (const binDir of findBinDirs(destination)) rmSync(binDir, { recursive: true, force: true });
+  }
   console.log(`[after-pack] copied ${source} -> ${destination}`);
 };
