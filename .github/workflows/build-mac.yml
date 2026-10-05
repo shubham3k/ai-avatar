@@ -31,18 +31,23 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Uses the pnpm version in package.json's "packageManager".
       - uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      # The Prisma client is generated code (not in git); on the dev PC it was
+      # generated once by hand, so a fresh machine has to do it explicitly.
+      - name: Generate the Prisma client
+        run: pnpm --filter @ai-agent/api prisma:generate
 
       - name: Build shared + API
         run: |
