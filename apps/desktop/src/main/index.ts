@@ -28,7 +28,8 @@ import { createProactiveScheduler, type ProactiveScheduler } from "./proactive-s
 import { runMigrations } from "./migrate.js";
 import { createPauseState } from "./pause-state.js";
 import { createSyncScheduler, type SyncScheduler } from "./sync-scheduler.js";
-import { TRAY_ICON_DATA_URL } from "./tray-icon.js";
+import { MAC_TRAY_ICON_2X_DATA_URL, MAC_TRAY_ICON_DATA_URL, TRAY_ICON_DATA_URL } from "./tray-icon.js";
+import { startFileLog } from "./file-log.js";
 import { createOverlayWindow } from "./windows/overlay-window.js";
 import { DEFAULT_OPENAI_MODEL, registerIpc } from "./ipc/register-ipc.js";
 
@@ -60,12 +61,23 @@ let lastCheckedAt: number | null = null;
 const isMac = process.platform === "darwin";
 
 app.whenReady().then(async () => {
+  // ADR-007 rev 1: the packaged app has no console — keep the main process's
+  // messages (and crashes) in <app data>/logs/main.log for diagnosis.
+  const logDir = join(app.getPath("userData"), "logs");
+  if (app.isPackaged) {
+    startFileLog(logDir);
+    process.on("uncaughtException", (err) => console.error("[crash] uncaught exception", err));
+    process.on("unhandledRejection", (reason) => console.error("[crash] unhandled rejection", reason));
+  }
+
   if (isMac) {
     // ADR-007: Finder-launched apps get a minimal PATH — add Homebrew/nvm so
-    // `npx` connections work; and Zara is a menu-bar app, not a Dock app
-    // (LSUIElement does this in the packaged app; this covers dev).
+    // `npx` connections work.
     process.env.PATH = macToolPath(process.env.PATH, app.getPath("home"));
-    app.dock?.hide();
+    // ADR-007 rev 1: a normal Dock app with the standard app menu — Quit (⌘Q),
+    // and the Edit menu, without which ⌘C/⌘V/⌘A don't work in text fields
+    // (the user couldn't paste their Google credentials).
+    Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: "appMenu" }, { role: "editMenu" }, { role: "windowMenu" }]));
   }
 
   // Electron denies media (mic/camera) permission requests by default —
@@ -286,6 +298,8 @@ app.whenReady().then(async () => {
       return result.canceled ? null : (result.filePaths[0] ?? null);
     },
     onProactiveSettingsChanged: () => proactive?.userReturned(),
+    quitApp: () => app.quit(),
+    logDir,
     getChatHotkey: () => hotkeys?.current() ?? null,
     changeChatHotkey: (accelerator) => {
       if (!hotkeys) return { ok: false, message: "Shortcuts aren't available." };
@@ -312,6 +326,8 @@ app.whenReady().then(async () => {
   function buildTrayMenu(): Menu {
     const paused = pauseState.isPaused();
     const items: MenuItemConstructorOptions[] = [
+      { label: "Open Zara", click: () => showMainWindow() },
+      { type: "separator" },
       {
         label: "Check now",
         enabled: !startupError,
@@ -350,7 +366,7 @@ app.whenReady().then(async () => {
         })),
       });
     }
-    items.push({ type: "separator" }, { label: "Quit", click: () => app.quit() });
+    items.push({ type: "separator" }, { label: "Quit Zara", click: () => app.quit() });
     return Menu.buildFromTemplate(items);
   }
 
@@ -362,12 +378,15 @@ app.whenReady().then(async () => {
     );
   }
 
-  const trayImage = nativeImage.createFromDataURL(TRAY_ICON_DATA_URL);
-  // ADR-007: a menu-bar icon on macOS — menu-bar sized, and a template image
-  // so macOS draws it black or white to match the menu bar.
-  const menuBarImage = isMac ? trayImage.resize({ width: 16, height: 16 }) : trayImage;
-  if (isMac) menuBarImage.setTemplateImage(true);
-  tray = new Tray(menuBarImage);
+  // ADR-007 rev 1: on macOS a "Z" template image (16 px + Retina 32 px) that
+  // macOS draws black or white to match the menu bar.
+  let trayImage = nativeImage.createFromDataURL(TRAY_ICON_DATA_URL);
+  if (isMac) {
+    trayImage = nativeImage.createFromDataURL(MAC_TRAY_ICON_DATA_URL);
+    trayImage.addRepresentation({ scaleFactor: 2, dataURL: MAC_TRAY_ICON_2X_DATA_URL });
+    trayImage.setTemplateImage(true);
+  }
+  tray = new Tray(trayImage);
   refreshTray();
   // Windows convention: left-click on a tray icon opens its menu too, not
   // just right-click. (macOS already opens the menu on click.)
@@ -431,6 +450,16 @@ app.whenReady().then(async () => {
     powerMonitor.on("resume", () => proactive?.userReturned());
   }
 });
+
+function showMainWindow(): void {
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return;
+  if (!win.isVisible()) win.show();
+  win.focus();
+}
+
+// macOS: clicking the Dock icon brings Zara back.
+app.on("activate", () => showMainWindow());
 
 app.on("window-all-closed", () => {
   app.quit();

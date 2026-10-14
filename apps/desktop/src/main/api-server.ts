@@ -48,6 +48,7 @@ export interface StartEmbeddedApiServerOptions {
   importApiModule?: (entryUrl: string) => Promise<{ buildApp: () => FastifyLikeInstance }>;
   /** Defaults to DEFAULT_PORT (4000) — see the module comment for why this isn't dynamic. */
   port?: number;
+  platform?: NodeJS.Platform;
 }
 
 export async function startEmbeddedApiServer(
@@ -58,7 +59,12 @@ export async function startEmbeddedApiServer(
   const { buildApp } = await importApiModule(pathToFileURL(entryPath).href);
   const server = buildApp();
 
-  await server.listen({ port: options.port ?? DEFAULT_PORT, host: "127.0.0.1" });
+  // ADR-007 rev 1: Google sends the browser back to http://localhost:4000/…,
+  // and macOS usually resolves localhost to IPv6 (::1) first — so on a Mac
+  // listen on "localhost", which Fastify binds on both 127.0.0.1 and ::1.
+  // Windows keeps the IPv4-only loopback it has always used.
+  const host = (options.platform ?? process.platform) === "darwin" ? "localhost" : "127.0.0.1";
+  await server.listen({ port: options.port ?? DEFAULT_PORT, host });
 
   const address = server.server.address();
   const port = address && typeof address === "object" ? address.port : null;

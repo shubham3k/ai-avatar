@@ -109,3 +109,16 @@ describe("describeUsage", () => {
     ).toBe("This month: no cost · 3 AI calls (3 by the Groq backup).");
   });
 });
+
+describe("Settings — a way out (ADR-007 rev 1)", () => {
+  it("offers Quit Zara and Open log folder, on the get-started screen too", async () => {
+    const quitApp = vi.fn().mockResolvedValue(undefined);
+    const openLogFolder = vi.fn().mockResolvedValue({ ok: true, value: null });
+    installBridge({ quitApp, openLogFolder });
+    render(<Settings />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open log folder" }));
+    fireEvent.click(screen.getByRole("button", { name: "Quit Zara" }));
+    expect(openLogFolder).toHaveBeenCalled();
+    expect(quitApp).toHaveBeenCalled();
+  });
+});

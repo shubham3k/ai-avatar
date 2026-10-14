@@ -30,3 +30,15 @@ Zara (ADR-006) ships as a Windows installer built on the user's PC. The user wan
 - The user tests on a Mac they borrow/own; GitHub only builds. Phase 1 can't be verified on the Windows dev PC beyond unit tests.
 - Private repos spend GitHub's Mac minutes at 10× (≈ 200 free Mac minutes/month); a run builds two variants (~15–20 min each).
 - Later: Developer ID signing + notarization, a Mac busy detector (full-screen / Zoom / Teams / Meet using mic or camera), an app icon, optional automatic releases on tags.
+
+## Revision 1 (Oct 14, 2026) — after the user's first Mac test
+
+The user reported: no close button, no menu-bar icon, no way to quit, "Sign in with Google" not working, buttons not working. Root causes found in code (no Mac to reproduce on):
+
+- **Menu-bar icon:** `TRAY_ICON_DATA_URL` is an RGB PNG **without an alpha channel** (a blue dot on an opaque white square). macOS template images are drawn from alpha only, so it rendered as a blank square (and MacBook notches hide overflowing menu-bar icons anyway).
+- **No way to quit:** phase 1 made Zara a menu-bar-only app (`LSUIElement` + `app.dock.hide()`): no Dock icon, no app menu, no Cmd+Q — the menu-bar icon was the only exit.
+- **No Edit menu:** on macOS, Cmd+C / Cmd+V / Cmd+X / Cmd+A in text fields only work through the app menu's Edit roles — so the Google Client ID/Secret (and API keys) couldn't be pasted, which blocks Google sign-in.
+- **Clicks ignored:** a macOS window that isn't active swallows the first click (it only activates the window). The overlay is almost never the active window, so buttons seemed dead.
+
+**Decision (supersedes §4's "menu-bar app"):** Zara is a normal Dock app on macOS — Dock icon (clicking it shows Zara), the standard app menu (About, Hide, **Quit Zara** ⌘Q) plus Edit and Window menus; the menu-bar icon stays as a proper template "Z" icon with Open Zara / Check now / Pause / Quit. The overlay accepts the first click (`acceptFirstMouse`). Settings gets **Quit Zara** and **Open log folder** buttons on both platforms, and the packaged app writes the main process's messages to `logs/main.log` in its app-data folder so Mac problems can be diagnosed from evidence. A simple app icon (white "Z" on a blue rounded square) is added for both platforms.
+

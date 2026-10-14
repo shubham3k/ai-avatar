@@ -480,11 +480,24 @@ export function Settings({ onClose, onShowBriefing }: SettingsProps) {
       </>
       )}
 
-      {onClose && (
-        <button type="button" className="button button-snooze settings-close" onClick={onClose}>
-          Close
-        </button>
-      )}
+      {/* ADR-007 rev 1: shown on the get-started screen too — the Mac build had no other way out. */}
+      <div className="settings-app-buttons">
+        {onClose && (
+          <button type="button" className="button button-snooze settings-close" onClick={onClose}>
+            Close
+          </button>
+        )}
+        {window.desktopAPI?.openLogFolder && (
+          <button type="button" className="button button-snooze" onClick={() => void window.desktopAPI?.openLogFolder?.()}>
+            Open log folder
+          </button>
+        )}
+        {window.desktopAPI?.quitApp && (
+          <button type="button" className="button button-snooze" onClick={() => void window.desktopAPI?.quitApp?.()}>
+            Quit Zara
+          </button>
+        )}
+      </div>
     </div>
   );
 }

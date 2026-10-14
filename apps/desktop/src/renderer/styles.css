@@ -908,6 +908,18 @@ body,
   width: 100%;
 }
 
+/* ADR-007 rev 1: Close (full width), then Open log folder + Quit Zara side by side. */
+.settings-app-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.settings-app-buttons .button:not(.settings-close) {
+  flex: 1;
+}
+
 .busy-indicator {
   position: fixed;
   top: 8px;

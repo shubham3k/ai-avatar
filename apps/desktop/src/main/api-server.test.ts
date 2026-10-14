@@ -39,6 +39,7 @@ describe("startEmbeddedApiServer", () => {
     const server = await startEmbeddedApiServer({
       apiRoot: API_ROOT,
       importApiModule: makeImportApiModule(),
+      platform: "win32",
     });
 
     expect(listen).toHaveBeenCalledWith({ port: 4000, host: "127.0.0.1" });
@@ -53,6 +54,7 @@ describe("startEmbeddedApiServer", () => {
       apiRoot: API_ROOT,
       importApiModule: makeImportApiModule(),
       port: 4321,
+      platform: "win32",
     });
 
     expect(listen).toHaveBeenCalledWith({ port: 4321, host: "127.0.0.1" });
@@ -87,5 +89,13 @@ describe("startEmbeddedApiServer", () => {
     await expect(
       startEmbeddedApiServer({ apiRoot: API_ROOT, importApiModule: makeImportApiModule() }),
     ).rejects.toThrow(/ENCRYPTION_KEY/);
+  });
+
+  it("on macOS listens on localhost (IPv4 and IPv6), so Google's redirect to http://localhost:4000 arrives (ADR-007 rev 1)", async () => {
+    listen.mockResolvedValue(undefined);
+    address.mockReturnValue({ port: 4000, address: "127.0.0.1", family: "IPv4" });
+    const server = await startEmbeddedApiServer({ apiRoot: API_ROOT, importApiModule: makeImportApiModule(), platform: "darwin" });
+    expect(listen).toHaveBeenCalledWith({ port: 4000, host: "localhost" });
+    expect(server.url).toBe("http://127.0.0.1:4000");
   });
 });

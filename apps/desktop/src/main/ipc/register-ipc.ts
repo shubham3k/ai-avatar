@@ -254,6 +254,10 @@ export function registerIpc(options: {
   getChatHotkey: () => string | null;
   /** M4: validates, re-registers, and persists a new shortcut — takes effect immediately. */
   changeChatHotkey: (accelerator: unknown) => { ok: true; accelerator: string } | { ok: false; message: string };
+  /** ADR-007 rev 1: Settings → Quit Zara. */
+  quitApp?: () => void;
+  /** ADR-007 rev 1: where the packaged app writes main.log (Settings → Open log folder). */
+  logDir?: string;
 }): void {
   const {
     ipcMain,
@@ -279,6 +283,8 @@ export function registerIpc(options: {
     onProactiveSettingsChanged,
     chooseFolder,
     chooseFolders,
+    quitApp,
+    logDir,
   } = options;
 
   ipcMain.handle("inbox:get", async () => api.fetchInbox());
@@ -304,7 +310,14 @@ export function registerIpc(options: {
   );
 
   ipcMain.handle("integrations:connect-google", async () => {
-    await shell.openExternal(`${apiUrl}/api/v1/integrations/google/connect`);
+    // Logged (main.log) so a sign-in that "does nothing" can be traced — the URL holds no secrets.
+    console.log(`[google] opening sign-in in the browser: ${apiUrl}/api/v1/integrations/google/connect`);
+    try {
+      await shell.openExternal(`${apiUrl}/api/v1/integrations/google/connect`);
+    } catch (err) {
+      console.error("[google] couldn't open the browser for sign-in", err);
+      throw err;
+    }
   });
 
   ipcMain.handle("intervention:open-source", async (_event, url: unknown) => {
@@ -434,6 +447,16 @@ export function registerIpc(options: {
     if (!folder) return { ok: true, value: null } satisfies ChatActionResult<null>;
     return settle(() => api.updateRecallSettings({ documentsFolder: folder }), "Couldn't use that folder.");
   });
+  // ADR-007 rev 1: an explicit way out (the Mac build had none), and the log folder for diagnosis.
+  ipcMain.handle("app:quit", async () => {
+    quitApp?.();
+  });
+  ipcMain.handle("app:open-logs", async () => {
+    if (!logDir || !shell.openPath) return { ok: false, message: "No log folder." };
+    const error = await shell.openPath(logDir);
+    return error ? { ok: false, message: "Couldn't open the log folder — it's created once the installed app has run." } : { ok: true, value: null };
+  });
+
   ipcMain.handle("recall:open-folder", async () => {
     const result = await settle(() => api.recallSettings(), "Couldn't find the folder.");
     if (!result.ok) return result;

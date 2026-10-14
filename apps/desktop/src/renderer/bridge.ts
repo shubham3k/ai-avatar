@@ -1,6 +1,9 @@
 interface DesktopApiBridge {
   /** ADR-007: the OS ("darwin" on a Mac). Optional so older test doubles still type-check. */
   platform?: string;
+  /** ADR-007 rev 1: Settings → Quit Zara / Open log folder. */
+  quitApp?(): Promise<void>;
+  openLogFolder?(): Promise<unknown>;
   fetchInbox(): Promise<unknown>;
   markDone(interventionId: string): Promise<unknown>;
   snooze(interventionId: string, minutes: number): Promise<unknown>;

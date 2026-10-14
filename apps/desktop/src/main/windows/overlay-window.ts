@@ -45,6 +45,10 @@ export function createOverlayWindow(options: {
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
+    // ADR-007 rev 1: on macOS the first click on a window that isn't active
+    // only activates it — Zara's overlay is rarely active, so buttons seemed
+    // dead. (No effect on Windows.)
+    acceptFirstMouse: true,
     show: false,
     backgroundColor: "#00000000",
     webPreferences: {

@@ -82,8 +82,7 @@
       "entitlements": "build-resources/entitlements.mac.plist",
       "entitlementsInherit": "build-resources/entitlements.mac.plist",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Zara listens when you talk to her (click the mic, press the shortcut, or hands-free).",
-        "LSUIElement": true
+        "NSMicrophoneUsageDescription": "Zara listens when you talk to her (click the mic, press the shortcut, or hands-free)."
       }
     },
     "dmg": {

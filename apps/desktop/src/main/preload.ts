@@ -3,6 +3,9 @@ import { contextBridge, ipcRenderer } from "electron";
 export interface DesktopApiBridge {
   /** ADR-007: the OS ("darwin" on a Mac), for platform-specific wording. */
   platform: string;
+  /** ADR-007 rev 1: Settings → Quit Zara / Open log folder. */
+  quitApp(): Promise<void>;
+  openLogFolder(): Promise<unknown>;
   fetchInbox(): Promise<unknown>;
   markDone(interventionId: string): Promise<unknown>;
   snooze(interventionId: string, minutes: number): Promise<unknown>;
@@ -153,6 +156,8 @@ const bridge: DesktopApiBridge = {
   chatSpeak: (text, voice) => ipcRenderer.invoke("chat:speak", text, voice),
   saveChatHotkey: (accelerator) => ipcRenderer.invoke("settings:save-hotkey", accelerator),
   platform: process.platform,
+  quitApp: () => ipcRenderer.invoke("app:quit"),
+  openLogFolder: () => ipcRenderer.invoke("app:open-logs"),
   onHotkey: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("zara:hotkey", listener);
